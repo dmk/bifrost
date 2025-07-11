@@ -1,0 +1,16 @@
+# Test configuration for blind forward proxy
+# This forwards from port 11211 to port 11212
+
+listeners:
+  main:
+    bind: "127.0.0.1:11211"
+
+backends:
+  test_backend:
+    type: "memcached"
+    server: "127.0.0.1:11212"  # This should be your actual memcached server
+
+routes:
+  everything:
+    matcher: "*"
+    backend: "test_backend"

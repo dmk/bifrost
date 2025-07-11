@@ -1,0 +1,16 @@
+# Configuration for testing with Docker Compose memcached
+# Proxy: 127.0.0.1:11211 -> 127.0.0.1:11212 (Docker memcached)
+
+listeners:
+  main:
+    bind: "127.0.0.1:11211"
+
+backends:
+  docker_memcached:
+    type: "memcached"
+    server: "127.0.0.1:11212"  # Points to Docker memcached
+
+routes:
+  all_traffic:
+    matcher: "*"
+    backend: "docker_memcached"

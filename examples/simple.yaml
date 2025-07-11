@@ -1,0 +1,16 @@
+# Simple Bifrost Configuration
+# Minimal setup for initial testing
+
+listeners:
+  main:
+    bind: "127.0.0.1:11211"
+
+backends:
+  target:
+    type: "memcached"
+    server: "127.0.0.1:11212"
+
+routes:
+  default:
+    matcher: "*"
+    backend: "target"
