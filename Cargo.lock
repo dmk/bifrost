@@ -101,6 +101,7 @@ dependencies = [
  "clap",
  "serde",
  "serde_yaml",
+ "socket2",
  "thiserror",
  "tokio",
  "tracing",

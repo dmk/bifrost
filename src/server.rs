@@ -4,9 +4,24 @@ use crate::core::backend::MemcachedBackend;
 use crate::core::strategy::BlindForwardStrategy;
 use crate::core::protocol::BlindForwardProtocol;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::sync::Arc;
 use tracing::{info, error, debug};
+
+/// Optimize client socket for low latency (same as backend optimization)
+fn optimize_client_socket(stream: &TcpStream) {
+    // Disable Nagle's algorithm for lower latency
+    let _ = stream.set_nodelay(true);
+
+    // Additional socket optimizations using socket2
+    if let Ok(socket_ref) = socket2::SockRef::try_from(stream) {
+        // Set socket to reuse address for faster reconnection
+        let _ = socket_ref.set_reuse_address(true);
+
+        // Optimize send/receive buffer sizes for cache workloads
+        let _ = socket_ref.set_send_buffer_size(32768);
+        let _ = socket_ref.set_recv_buffer_size(32768);
+    }
+}
 
 pub struct BifrostServer {
     config: Arc<Config>,
@@ -59,6 +74,9 @@ impl BifrostServer {
                 Ok((client_socket, addr)) => {
                     debug!("New connection from: {}", addr);
 
+                    // Optimize client socket immediately
+                    optimize_client_socket(&client_socket);
+
                     // Clone necessary data for the task
                     let backends = Arc::clone(&self.backends);
                     let strategy = Arc::clone(&self.strategy);
@@ -93,7 +111,7 @@ async fn handle_connection(
 
     debug!("Using backend '{}' at: {}", backend.name(), backend.server());
 
-    // Connect to backend
+    // Connect to backend (optimized with comprehensive socket settings)
     let backend_socket = backend.connect()
         .await
         .map_err(|e| ServerError::BackendConnectionFailed(e.to_string()))?;
@@ -101,6 +119,7 @@ async fn handle_connection(
     debug!("Connected to backend: {}", backend.server());
 
     // Use protocol to handle the connection
+    // Note: This consumes both client and backend connections
     if let Err(e) = protocol.handle_connection(client_socket, backend_socket).await {
         debug!("Protocol handling ended: {}", e);
     }
@@ -109,61 +128,25 @@ async fn handle_connection(
     Ok(())
 }
 
-/// Proxy data bidirectionally between client and backend
+/// Proxy data bidirectionally between client and backend (optimized version)
 pub async fn proxy_bidirectional(client_socket: TcpStream, backend_socket: TcpStream) -> Result<(), std::io::Error> {
-    let (client_read, client_write) = client_socket.into_split();
-    let (backend_read, backend_write) = backend_socket.into_split();
+    // Use tokio's optimized bidirectional copy for zero-copy forwarding
+    let (mut client_read, mut client_write) = client_socket.into_split();
+    let (mut backend_read, mut backend_write) = backend_socket.into_split();
 
-    // Forward client -> backend
-    let client_to_backend = proxy_stream(client_read, backend_write, "client", "backend");
-
-    // Forward backend -> client
-    let backend_to_client = proxy_stream(backend_read, client_write, "backend", "client");
-
-    // Run both directions concurrently
+    // Forward client -> backend and backend -> client concurrently
+    // This is more efficient than manual buffering
     tokio::select! {
-        result = client_to_backend => {
-            if let Err(e) = result {
-                debug!("Client to backend forwarding ended: {}", e);
+        result = tokio::io::copy(&mut client_read, &mut backend_write) => {
+            match result {
+                Ok(bytes) => debug!("Client to backend forwarding completed: {} bytes", bytes),
+                Err(e) => debug!("Client to backend forwarding ended: {}", e),
             }
         }
-        result = backend_to_client => {
-            if let Err(e) = result {
-                debug!("Backend to client forwarding ended: {}", e);
-            }
-        }
-    }
-
-    Ok(())
-}
-
-/// Forward data from reader to writer
-async fn proxy_stream<R, W>(
-    mut reader: R,
-    mut writer: W,
-    from: &str,
-    to: &str,
-) -> Result<(), std::io::Error>
-where
-    R: AsyncReadExt + Unpin,
-    W: AsyncWriteExt + Unpin,
-{
-    let mut buffer = [0; 4096];
-
-    loop {
-        match reader.read(&mut buffer).await {
-            Ok(0) => {
-                debug!("{} closed connection", from);
-                break;
-            }
-            Ok(n) => {
-                debug!("Forwarding {} bytes from {} to {}", n, from, to);
-                writer.write_all(&buffer[..n]).await?;
-                writer.flush().await?;
-            }
-            Err(e) => {
-                debug!("Error reading from {}: {}", from, e);
-                return Err(e);
+        result = tokio::io::copy(&mut backend_read, &mut client_write) => {
+            match result {
+                Ok(bytes) => debug!("Backend to client forwarding completed: {} bytes", bytes),
+                Err(e) => debug!("Backend to client forwarding ended: {}", e),
             }
         }
     }
