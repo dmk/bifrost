@@ -20,15 +20,14 @@ fn optimize_socket_for_latency(stream: &TcpStream) {
     let _ = stream.set_nodelay(true);
 
     // Additional socket optimizations using socket2
-    if let Ok(socket_ref) = socket2::SockRef::try_from(stream) {
-        // Set socket to reuse address for faster reconnection
-        let _ = socket_ref.set_reuse_address(true);
+    let socket_ref = socket2::SockRef::try_from(stream).unwrap();
+    // Set socket to reuse address for faster reconnection
+    let _ = socket_ref.set_reuse_address(true);
 
-        // Optimize send/receive buffer sizes for cache workloads
-        // 32KB buffers balance latency vs throughput for cache operations
-        let _ = socket_ref.set_send_buffer_size(32768);
-        let _ = socket_ref.set_recv_buffer_size(32768);
-    }
+    // Optimize send/receive buffer sizes for cache workloads
+    // 32KB buffers balance latency vs throughput for cache operations
+    let _ = socket_ref.set_send_buffer_size(32768);
+    let _ = socket_ref.set_recv_buffer_size(32768);
 }
 
 /// Simple memcached backend implementation with TCP optimizations
