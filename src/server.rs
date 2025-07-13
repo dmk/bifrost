@@ -2,7 +2,7 @@ use crate::config::Config;
 use crate::core::{Backend, Strategy, Protocol};
 use crate::core::backend::MemcachedBackend;
 use crate::core::strategy::BlindForwardStrategy;
-use crate::core::protocol::BlindForwardProtocol;
+use crate::core::protocols::BlindForwardProtocol;
 use tokio::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 use tracing::{info, error, debug};

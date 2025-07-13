@@ -1,15 +1,6 @@
 use async_trait::async_trait;
 use tokio::net::TcpStream;
-
-/// Core trait for protocol handlers
-#[async_trait]
-pub trait Protocol: Send + Sync {
-    /// Handle a connection by forwarding data between client and backend
-    async fn handle_connection(&self, client: TcpStream, backend: TcpStream) -> Result<(), ProtocolError>;
-
-    /// Protocol name
-    fn name(&self) -> &str;
-}
+use super::{Protocol, ProtocolError};
 
 /// Simple blind forward protocol - forwards raw TCP data
 #[derive(Debug)]
@@ -42,12 +33,4 @@ impl Protocol for BlindForwardProtocol {
     fn name(&self) -> &str {
         &self.name
     }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum ProtocolError {
-    #[error("Forwarding failed: {0}")]
-    ForwardingFailed(String),
-    #[error("Protocol parse error: {0}")]
-    ParseError(String),
 }

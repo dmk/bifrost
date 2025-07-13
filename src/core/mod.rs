@@ -1,8 +1,8 @@
 pub mod backend;
 pub mod strategy;
-pub mod protocol;
+pub mod protocols;
 
 // Re-export core traits
 pub use backend::Backend;
 pub use strategy::Strategy;
-pub use protocol::Protocol;
+pub use protocols::Protocol;
