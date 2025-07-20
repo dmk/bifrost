@@ -163,8 +163,6 @@ async fn handle_concurrent_pool_request(
     }
 }
 
-
-
 /// Handle a client connection using our route table system
 async fn handle_connection_with_routing(
     client_socket: TcpStream,
