@@ -1,0 +1,53 @@
+# Working Pool Configuration
+# Uses only implemented strategies: round_robin and blind_forward
+
+listeners:
+  main:
+    bind: "127.0.0.1:22122"
+
+# Individual backend servers
+backends:
+  cache1:
+    type: "memcached"
+    server: "127.0.0.1:11212"
+  cache2:
+    type: "memcached"
+    server: "127.0.0.1:11213"
+  cache3:
+    type: "memcached"
+    server: "127.0.0.1:11214"
+
+# Backend pools with working strategies
+pools:
+  # Round robin pool - distributes load evenly
+  balanced_pool:
+    backends: ["cache1", "cache2", "cache3"]
+    strategy:
+      type: "round_robin"
+
+  # Simple pool - always uses first backend
+  simple_pool:
+    backends: ["cache1", "cache2"]
+    strategy:
+      type: "blind_forward"
+
+routes:
+  # Route to individual backend (existing functionality)
+  direct:
+    matcher: "direct:*"
+    backend: "cache1"
+
+  # Route to load balanced pool
+  balanced:
+    matcher: "user:*"
+    pool: "balanced_pool"
+
+  # Route to simple pool
+  simple:
+    matcher: "cache:*"
+    pool: "simple_pool"
+
+  # Default route
+  default:
+    matcher: "*"
+    pool: "balanced_pool"

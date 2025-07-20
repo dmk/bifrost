@@ -1,8 +1,9 @@
 use crate::config::Config;
-use crate::core::{Backend, Strategy, Protocol};
+use crate::core::{Backend, Strategy, Protocol, RouteTable, RouteTableBuilder};
 use crate::core::backend::MemcachedBackend;
 use crate::core::strategy::BlindForwardStrategy;
-use crate::core::protocols::BlindForwardProtocol;
+use crate::core::protocols::{BlindForwardProtocol, AsciiProtocol};
+use crate::core::route_table::ResolvedTarget;
 use tokio::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 use tracing::{info, error, debug};
@@ -24,29 +25,24 @@ fn optimize_client_socket(stream: &TcpStream) {
 
 pub struct BifrostServer {
     config: Arc<Config>,
-    backends: Arc<Vec<Box<dyn Backend>>>,
-    strategy: Arc<dyn Strategy>,
+    route_table: Arc<RouteTable>,
     protocol: Arc<dyn Protocol>,
 }
 
 impl BifrostServer {
     pub fn new(config: Config) -> Self {
-        // Create backends from config
-        let backends: Vec<Box<dyn Backend>> = config.backends
-            .iter()
-            .map(|(name, backend_config)| {
-                Box::new(MemcachedBackend::new(name.clone(), backend_config.server.clone())) as Box<dyn Backend>
-            })
-            .collect();
+        // Build route table from config
+        let route_table = RouteTableBuilder::build_from_config(&config)
+            .expect("Failed to build route table from config");
 
-        // For now, use simple strategies
-        let strategy = Arc::new(BlindForwardStrategy::new()) as Arc<dyn Strategy>;
-        let protocol = Arc::new(BlindForwardProtocol::new()) as Arc<dyn Protocol>;
+        info!("Route table built with {} routes", route_table.routes().len());
+
+        // Use ASCII protocol to parse keys for routing
+        let protocol = Arc::new(AsciiProtocol::new()) as Arc<dyn Protocol>;
 
         Self {
             config: Arc::new(config),
-            backends: Arc::new(backends),
-            strategy,
+            route_table,
             protocol,
         }
     }
@@ -77,13 +73,12 @@ impl BifrostServer {
                     optimize_client_socket(&client_socket);
 
                     // Clone necessary data for the task
-                    let backends = Arc::clone(&self.backends);
-                    let strategy = Arc::clone(&self.strategy);
+                    let route_table = Arc::clone(&self.route_table);
                     let protocol = Arc::clone(&self.protocol);
 
                     // Handle connection in a separate task
                     tokio::spawn(async move {
-                        if let Err(e) = handle_connection(client_socket, backends, strategy, protocol).await {
+                        if let Err(e) = handle_connection_with_routing(client_socket, route_table, protocol).await {
                             error!("Connection error: {}", e);
                         }
                     });
@@ -96,35 +91,102 @@ impl BifrostServer {
     }
 }
 
-/// Handle a client connection using the trait-based architecture
-async fn handle_connection(
+/// Handle a client connection using our route table system
+async fn handle_connection_with_routing(
     client_socket: TcpStream,
-    backends: Arc<Vec<Box<dyn Backend>>>,
-    strategy: Arc<dyn Strategy>,
+    route_table: Arc<RouteTable>,
     protocol: Arc<dyn Protocol>,
 ) -> Result<(), ServerError> {
-    // Use strategy to select backend
-    let backend = strategy.select_backend(&backends)
-        .await
-        .ok_or(ServerError::NoBackends)?;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-    debug!("Using backend '{}' at: {}", backend.name(), backend.server());
+    let mut client_reader = BufReader::new(client_socket);
 
-    // Connect to backend (optimized with comprehensive socket settings)
-    let backend_socket = backend.connect()
+    // Read the first line to extract the key
+    let mut first_line = String::new();
+    client_reader.read_line(&mut first_line).await
+        .map_err(|e| ServerError::IoError(format!("Failed to read first line: {}", e)))?;
+
+    if first_line.is_empty() {
+        return Ok(()); // Connection closed
+    }
+
+    debug!("First request line: {}", first_line.trim());
+
+    // Extract key from the request (simple parsing)
+    let key = extract_key_from_request(&first_line)
+        .unwrap_or("default".to_string());
+
+    debug!("Extracted key: '{}' for routing", key);
+
+    // Find route for this key
+    let route = route_table.find_route(&key)
+        .ok_or_else(|| ServerError::NoRoutes)?;
+
+    debug!("Key '{}' matched route pattern: '{}'", key, route.matcher.pattern());
+
+    // Select backend based on route target
+    let backend = match &route.target {
+        ResolvedTarget::Backend(backend) => {
+            debug!("Route targets backend: {}", backend.name());
+            Arc::clone(backend)
+        }
+        ResolvedTarget::Pool(pool) => {
+            debug!("Route targets pool: {} with strategy: {}", pool.name(), pool.strategy().name());
+            let selected = pool.select_backend(&key).await
+                .map_err(|e| ServerError::BackendConnectionFailed(format!("Pool selection failed: {}", e)))?;
+
+            debug!("Pool selected backend: {}", selected.name());
+
+            // We need to convert the pool's selected backend to Arc<dyn Backend>
+            // For now, create a new MemcachedBackend (not ideal, but works for testing)
+            Arc::new(MemcachedBackend::new(selected.name().to_string(), selected.server().to_string()))
+        }
+    };
+
+    info!("🎯 Key '{}' routed to backend: {} ({})", key, backend.name(), backend.server());
+
+    // Connect to the selected backend
+    let mut backend_socket = backend.connect()
         .await
         .map_err(|e| ServerError::BackendConnectionFailed(e.to_string()))?;
 
     debug!("Connected to backend: {}", backend.server());
 
-    // Use protocol to handle the connection
-    // Note: This consumes both client and backend connections
-    if let Err(e) = protocol.handle_connection(client_socket, backend_socket).await {
-        debug!("Protocol handling ended: {}", e);
+    // Forward the first line that we already read
+    backend_socket.write_all(first_line.as_bytes()).await
+        .map_err(|e| ServerError::IoError(format!("Failed to write first line to backend: {}", e)))?;
+
+    backend_socket.flush().await
+        .map_err(|e| ServerError::IoError(format!("Failed to flush backend: {}", e)))?;
+
+    debug!("Forwarded first line to backend: {}", first_line.trim());
+
+    // Get the original client socket back from the buffered reader
+    let client_stream = client_reader.into_inner();
+
+    // Now use bidirectional proxy to forward everything else
+    if let Err(e) = proxy_bidirectional(client_stream, backend_socket).await {
+        debug!("Bidirectional proxy ended: {}", e);
     }
 
     debug!("Connection closed");
     Ok(())
+}
+
+/// Extract key from memcached request line (simple implementation)
+fn extract_key_from_request(line: &str) -> Option<String> {
+    let parts: Vec<&str> = line.trim().split_whitespace().collect();
+
+    if parts.len() < 2 {
+        return None;
+    }
+
+    match parts[0].to_uppercase().as_str() {
+        "GET" | "SET" | "ADD" | "REPLACE" | "DELETE" | "INCR" | "DECR" => {
+            Some(parts[1].to_string())
+        }
+        _ => None,
+    }
 }
 
 /// Proxy data bidirectionally between client and backend (optimized version)

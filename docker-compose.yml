@@ -1,19 +1,42 @@
 version: '3.8'
 
 services:
-  memcached:
+  memcached1:
     image: memcached:1.6-alpine
     platform: linux/arm64
     ports:
-      - "11212:11211"  # Expose memcached on port 11212
+      - "11211:11211"  # Expose memcached on port 11212
     command: ["-v"]  # Verbose mode to see requests
     container_name: bifrost-memcached
 
-  # Optional: Add another memcached for testing multiple backends later
   memcached2:
+    image: memcached:1.6-alpine
+    platform: linux/arm64
+    ports:
+      - "11212:11211"
+    command: ["-v"]
+    container_name: bifrost-memcached2
+
+  memcached3:
     image: memcached:1.6-alpine
     platform: linux/arm64
     ports:
       - "11213:11211"
     command: ["-v"]
-    container_name: bifrost-memcached2
+    container_name: bifrost-memcached3
+
+  memcached4:
+    image: memcached:1.6-alpine
+    platform: linux/arm64
+    ports:
+      - "11214:11211"
+    command: ["-v"]
+    container_name: bifrost-memcached4
+
+  memcached5:
+    image: memcached:1.6-alpine
+    platform: linux/arm64
+    ports:
+      - "11215:11211"
+    command: ["-v"]
+    container_name: bifrost-memcached5

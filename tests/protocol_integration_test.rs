@@ -109,8 +109,8 @@ async fn test_ascii_protocol_command_reconstruction() {
                 assert!(!key.is_empty());
                 assert_eq!(parsed.expects_response(), !noreply);
             }
-            AsciiCommand::Incr { key, value, noreply } |
-            AsciiCommand::Decr { key, value, noreply } => {
+            AsciiCommand::Incr { key, value: _, noreply } |
+            AsciiCommand::Decr { key, value: _, noreply } => {
                 assert!(!key.is_empty());
                 // value can be 0 for increment/decrement operations
                 assert_eq!(parsed.expects_response(), !noreply);
