@@ -1,0 +1,33 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+*.md
+docs/
+
+# Development
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build artifacts
+target/
+Cargo.lock
+
+# Tests
+tests/
+
+# CI/CD
+.github/
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# OS
+.DS_Store
+Thumbs.db
