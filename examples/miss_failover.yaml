@@ -5,24 +5,24 @@
 
 listeners:
   memcached:
-    bind: "127.0.0.1:22124"
+    bind: "0.0.0.0:22122"
 
 backends:
-  cache1:
-    type: "memcached"
-    server: "127.0.0.1:11212"  # Primary cache server
-
   cache2:
     type: "memcached"
-    server: "127.0.0.1:11213"  # Secondary cache server
+    server: "memcached2:11211"  # Primary cache server
 
   cache3:
     type: "memcached"
-    server: "127.0.0.1:11214"  # Tertiary cache server
+    server: "memcached3:11211"  # Secondary cache server
+
+  cache4:
+    type: "memcached"
+    server: "memcached4:11211"  # Tertiary cache server
 
 pools:
   miss_failover_pool:
-    backends: ["cache1", "cache2", "cache3"]
+    backends: ["cache2", "cache3", "cache4"]
     strategy:
       type: "miss_failover"
 
