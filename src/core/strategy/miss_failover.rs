@@ -1,6 +1,6 @@
-use async_trait::async_trait;
-use crate::core::backend::Backend;
 use super::Strategy;
+use crate::core::backend::Backend;
+use async_trait::async_trait;
 
 /// Miss Failover strategy - used with ConcurrentPool to handle cache misses
 /// When used with ConcurrentPool, requests are sent to all backends simultaneously
@@ -26,7 +26,10 @@ impl Default for MissFailoverStrategy {
 
 #[async_trait]
 impl Strategy for MissFailoverStrategy {
-    async fn select_backend<'a>(&self, backends: &'a [Box<dyn Backend>]) -> Option<&'a Box<dyn Backend>> {
+    async fn select_backend<'a>(
+        &self,
+        backends: &'a [Box<dyn Backend>],
+    ) -> Option<&'a Box<dyn Backend>> {
         // For compatibility with regular pools, just return the first backend
         // The real concurrent logic is implemented in ConcurrentPool
         backends.first()
@@ -44,8 +47,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_miss_failover_strategy() {
-        let backend1 = Box::new(MemcachedBackend::new("test1".to_string(), "127.0.0.1:11211".to_string())) as Box<dyn Backend>;
-        let backend2 = Box::new(MemcachedBackend::new("test2".to_string(), "127.0.0.1:11212".to_string())) as Box<dyn Backend>;
+        let backend1 = Box::new(MemcachedBackend::new(
+            "test1".to_string(),
+            "127.0.0.1:11211".to_string(),
+        )) as Box<dyn Backend>;
+        let backend2 = Box::new(MemcachedBackend::new(
+            "test2".to_string(),
+            "127.0.0.1:11212".to_string(),
+        )) as Box<dyn Backend>;
         let backends = vec![backend1, backend2];
 
         let strategy = MissFailoverStrategy::new();

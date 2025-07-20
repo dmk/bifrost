@@ -52,11 +52,21 @@ impl Default for ConnectionPoolConfig {
 }
 
 // Default values for connection pool configuration
-fn default_min_connections() -> u32 { 2 }
-fn default_max_connections() -> u32 { 10 }
-fn default_connection_timeout_secs() -> u64 { 5 }
-fn default_idle_timeout_secs() -> u64 { 300 } // 5 minutes
-fn default_max_lifetime_secs() -> u64 { 3600 } // 1 hour
+fn default_min_connections() -> u32 {
+    2
+}
+fn default_max_connections() -> u32 {
+    10
+}
+fn default_connection_timeout_secs() -> u64 {
+    5
+}
+fn default_idle_timeout_secs() -> u64 {
+    300
+} // 5 minutes
+fn default_max_lifetime_secs() -> u64 {
+    3600
+} // 1 hour
 
 // New: Pool configuration for collections of backends
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -97,8 +107,8 @@ impl Config {
             .await
             .map_err(|e| ConfigError::IoError(e.to_string()))?;
 
-        let config: Config = serde_yaml::from_str(&content)
-            .map_err(|e| ConfigError::ParseError(e.to_string()))?;
+        let config: Config =
+            serde_yaml::from_str(&content).map_err(|e| ConfigError::ParseError(e.to_string()))?;
 
         // Validate the configuration
         config.validate()?;
@@ -108,8 +118,8 @@ impl Config {
 
     /// Parse configuration from a YAML string (useful for testing)
     pub fn from_yaml_str(content: &str) -> Result<Self, ConfigError> {
-        let config: Config = serde_yaml::from_str(content)
-            .map_err(|e| ConfigError::ParseError(e.to_string()))?;
+        let config: Config =
+            serde_yaml::from_str(content).map_err(|e| ConfigError::ParseError(e.to_string()))?;
 
         // Validate the configuration
         config.validate()?;

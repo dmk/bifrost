@@ -1,6 +1,6 @@
+use super::{Protocol, ProtocolError};
 use async_trait::async_trait;
 use tokio::net::TcpStream;
-use super::{Protocol, ProtocolError};
 
 /// Simple blind forward protocol - forwards raw TCP data
 #[derive(Debug)]
@@ -24,7 +24,11 @@ impl Default for BlindForwardProtocol {
 
 #[async_trait]
 impl Protocol for BlindForwardProtocol {
-    async fn handle_connection(&self, mut client: TcpStream, mut backend: TcpStream) -> Result<(), ProtocolError> {
+    async fn handle_connection(
+        &self,
+        mut client: TcpStream,
+        mut backend: TcpStream,
+    ) -> Result<(), ProtocolError> {
         crate::server::proxy_bidirectional(&mut client, &mut backend)
             .await
             .map_err(|e| ProtocolError::ForwardingFailed(e.to_string()))

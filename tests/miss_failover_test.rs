@@ -1,8 +1,4 @@
-use bifrost::{
-    config::Config,
-    core::RouteTableBuilder,
-    core::route_table::ResolvedTarget,
-};
+use bifrost::{config::Config, core::route_table::ResolvedTarget, core::RouteTableBuilder};
 
 #[tokio::test]
 async fn test_miss_failover_config_loading() {
@@ -86,7 +82,8 @@ async fn test_miss_failover_strategy_factory() {
     use bifrost::core::strategy::create_strategy;
 
     // Test that the strategy factory can create miss_failover strategies
-    let strategy = create_strategy("miss_failover").expect("Failed to create miss_failover strategy");
+    let strategy =
+        create_strategy("miss_failover").expect("Failed to create miss_failover strategy");
     assert_eq!(strategy.name(), "miss_failover");
 
     // Test unknown strategy still fails

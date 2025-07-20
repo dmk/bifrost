@@ -1,8 +1,8 @@
+use crate::config::ConnectionPoolConfig;
 use async_trait::async_trait;
 use bb8::{Pool, PooledConnection};
 use std::time::Duration;
 use tokio::net::TcpStream;
-use crate::config::ConnectionPoolConfig;
 
 /// Connection manager for bb8 that creates TCP connections to memcached servers
 #[derive(Debug, Clone)]
@@ -95,7 +95,9 @@ impl ConnectionPoolBuilder {
     }
 
     /// Create a pool with default configuration
-    pub async fn build_default_pool(server_address: String) -> Result<MemcachedPool, ConnectionError> {
+    pub async fn build_default_pool(
+        server_address: String,
+    ) -> Result<MemcachedPool, ConnectionError> {
         let config = ConnectionPoolConfig::default();
         Self::build_pool(server_address, &config).await
     }

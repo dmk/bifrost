@@ -1,6 +1,6 @@
-use async_trait::async_trait;
-use crate::core::backend::Backend;
 use super::Strategy;
+use crate::core::backend::Backend;
+use async_trait::async_trait;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Simple round robin strategy - cycles through backends in order
@@ -27,7 +27,10 @@ impl Default for RoundRobinStrategy {
 
 #[async_trait]
 impl Strategy for RoundRobinStrategy {
-    async fn select_backend<'a>(&self, backends: &'a [Box<dyn Backend>]) -> Option<&'a Box<dyn Backend>> {
+    async fn select_backend<'a>(
+        &self,
+        backends: &'a [Box<dyn Backend>],
+    ) -> Option<&'a Box<dyn Backend>> {
         if backends.is_empty() {
             return None;
         }
@@ -49,9 +52,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_round_robin_strategy() {
-        let backend1 = Box::new(MemcachedBackend::new("test1".to_string(), "127.0.0.1:11211".to_string())) as Box<dyn Backend>;
-        let backend2 = Box::new(MemcachedBackend::new("test2".to_string(), "127.0.0.1:11212".to_string())) as Box<dyn Backend>;
-        let backend3 = Box::new(MemcachedBackend::new("test3".to_string(), "127.0.0.1:11213".to_string())) as Box<dyn Backend>;
+        let backend1 = Box::new(MemcachedBackend::new(
+            "test1".to_string(),
+            "127.0.0.1:11211".to_string(),
+        )) as Box<dyn Backend>;
+        let backend2 = Box::new(MemcachedBackend::new(
+            "test2".to_string(),
+            "127.0.0.1:11212".to_string(),
+        )) as Box<dyn Backend>;
+        let backend3 = Box::new(MemcachedBackend::new(
+            "test3".to_string(),
+            "127.0.0.1:11213".to_string(),
+        )) as Box<dyn Backend>;
         let backends = vec![backend1, backend2, backend3];
 
         let strategy = RoundRobinStrategy::new();
@@ -82,7 +94,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_round_robin_with_single_backend() {
-        let backend1 = Box::new(MemcachedBackend::new("test1".to_string(), "127.0.0.1:11211".to_string())) as Box<dyn Backend>;
+        let backend1 = Box::new(MemcachedBackend::new(
+            "test1".to_string(),
+            "127.0.0.1:11211".to_string(),
+        )) as Box<dyn Backend>;
         let backends = vec![backend1];
 
         let strategy = RoundRobinStrategy::new();

@@ -1,14 +1,16 @@
 pub mod backend;
-pub mod strategy;
-pub mod protocols;
-pub mod pool;
-pub mod route_table;
 pub mod connection_pool;
+pub mod pool;
+pub mod protocols;
+pub mod route_table;
+pub mod strategy;
 
 // Re-export core traits
 pub use backend::Backend;
-pub use strategy::{Strategy, BlindForwardStrategy, RoundRobinStrategy, FailoverStrategy, MissFailoverStrategy};
+pub use connection_pool::{ConnectionPoolBuilder, MemcachedPool};
+pub use pool::{BasicPool, ConcurrentPool, Pool};
 pub use protocols::Protocol;
-pub use pool::{Pool, BasicPool, ConcurrentPool};
-pub use route_table::{RouteTable, RouteTableBuilder, Matcher, GlobMatcher};
-pub use connection_pool::{MemcachedPool, ConnectionPoolBuilder};
+pub use route_table::{GlobMatcher, Matcher, RouteTable, RouteTableBuilder};
+pub use strategy::{
+    BlindForwardStrategy, FailoverStrategy, MissFailoverStrategy, RoundRobinStrategy, Strategy,
+};

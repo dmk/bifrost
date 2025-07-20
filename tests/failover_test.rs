@@ -1,8 +1,4 @@
-use bifrost::{
-    config::Config,
-    core::RouteTableBuilder,
-    core::route_table::ResolvedTarget,
-};
+use bifrost::{config::Config, core::route_table::ResolvedTarget, core::RouteTableBuilder};
 
 #[tokio::test]
 async fn test_failover_config_loading() {
@@ -79,11 +75,13 @@ routes:
     }
 
     println!("✅ Failover configuration loaded and route table built successfully!");
-    println!("✅ Strategy type: {}",
-             match &critical_route.target {
-                 ResolvedTarget::Pool(pool) => pool.strategy().name(),
-                 _ => "none"
-             });
+    println!(
+        "✅ Strategy type: {}",
+        match &critical_route.target {
+            ResolvedTarget::Pool(pool) => pool.strategy().name(),
+            _ => "none",
+        }
+    );
 }
 
 #[tokio::test]

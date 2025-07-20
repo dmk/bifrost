@@ -1,6 +1,6 @@
 use bifrost::{config::Config, server::BifrostServer};
 use clap::Parser;
-use tracing::{info, error};
+use tracing::{error, info};
 
 #[derive(Parser)]
 #[command(name = "bifrost")]
@@ -25,7 +25,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Configuration loaded from: {}", args.config);
 
     // Log proxy setup
-    if let (Some(listener), Some(backend)) = (config.listeners.values().next(), config.backends.values().next()) {
+    if let (Some(listener), Some(backend)) = (
+        config.listeners.values().next(),
+        config.backends.values().next(),
+    ) {
         info!("Proxy: {} -> {}", listener.bind, backend.server);
     }
 

@@ -1,22 +1,25 @@
-use async_trait::async_trait;
 use crate::core::backend::Backend;
+use async_trait::async_trait;
 
 // Re-export all strategy implementations
 pub mod blind_forward;
-pub mod round_robin;
 pub mod failover;
 pub mod miss_failover;
+pub mod round_robin;
 
 pub use blind_forward::BlindForwardStrategy;
-pub use round_robin::RoundRobinStrategy;
 pub use failover::FailoverStrategy;
 pub use miss_failover::MissFailoverStrategy;
+pub use round_robin::RoundRobinStrategy;
 
 /// Core trait for routing strategies
 #[async_trait]
 pub trait Strategy: Send + Sync {
     /// Select a backend for the given request
-    async fn select_backend<'a>(&self, backends: &'a [Box<dyn Backend>]) -> Option<&'a Box<dyn Backend>>;
+    async fn select_backend<'a>(
+        &self,
+        backends: &'a [Box<dyn Backend>],
+    ) -> Option<&'a Box<dyn Backend>>;
 
     /// Strategy name
     fn name(&self) -> &str;

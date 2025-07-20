@@ -1,13 +1,22 @@
-use bifrost::core::{Backend, BasicPool, Pool};
 use bifrost::core::backend::MemcachedBackend;
-use bifrost::core::strategy::{create_strategy};
+use bifrost::core::strategy::create_strategy;
+use bifrost::core::{Backend, BasicPool, Pool};
 
 #[tokio::test]
 async fn test_pool_with_round_robin_strategy() {
     // Create backends
-    let backend1 = Box::new(MemcachedBackend::new("cache1".to_string(), "127.0.0.1:11211".to_string())) as Box<dyn Backend>;
-    let backend2 = Box::new(MemcachedBackend::new("cache2".to_string(), "127.0.0.1:11212".to_string())) as Box<dyn Backend>;
-    let backend3 = Box::new(MemcachedBackend::new("cache3".to_string(), "127.0.0.1:11213".to_string())) as Box<dyn Backend>;
+    let backend1 = Box::new(MemcachedBackend::new(
+        "cache1".to_string(),
+        "127.0.0.1:11211".to_string(),
+    )) as Box<dyn Backend>;
+    let backend2 = Box::new(MemcachedBackend::new(
+        "cache2".to_string(),
+        "127.0.0.1:11212".to_string(),
+    )) as Box<dyn Backend>;
+    let backend3 = Box::new(MemcachedBackend::new(
+        "cache3".to_string(),
+        "127.0.0.1:11213".to_string(),
+    )) as Box<dyn Backend>;
 
     let backends = vec![backend1, backend2, backend3];
 
@@ -17,7 +26,11 @@ async fn test_pool_with_round_robin_strategy() {
     // Create pool
     let pool = BasicPool::new("test_pool".to_string(), backends, strategy);
 
-    println!("✅ Created pool '{}' with {} backends", pool.name(), pool.backends().len());
+    println!(
+        "✅ Created pool '{}' with {} backends",
+        pool.name(),
+        pool.backends().len()
+    );
 
     // Test that round robin actually works
     let selected1 = pool.select_backend("test_key_1").await.unwrap();
@@ -44,8 +57,14 @@ async fn test_pool_with_round_robin_strategy() {
 #[tokio::test]
 async fn test_pool_with_blind_forward_strategy() {
     // Create backends
-    let backend1 = Box::new(MemcachedBackend::new("cache1".to_string(), "127.0.0.1:11211".to_string())) as Box<dyn Backend>;
-    let backend2 = Box::new(MemcachedBackend::new("cache2".to_string(), "127.0.0.1:11212".to_string())) as Box<dyn Backend>;
+    let backend1 = Box::new(MemcachedBackend::new(
+        "cache1".to_string(),
+        "127.0.0.1:11211".to_string(),
+    )) as Box<dyn Backend>;
+    let backend2 = Box::new(MemcachedBackend::new(
+        "cache2".to_string(),
+        "127.0.0.1:11212".to_string(),
+    )) as Box<dyn Backend>;
 
     let backends = vec![backend1, backend2];
 
@@ -55,7 +74,10 @@ async fn test_pool_with_blind_forward_strategy() {
     // Create pool
     let pool = BasicPool::new("simple_pool".to_string(), backends, strategy);
 
-    println!("✅ Created pool '{}' with blind forward strategy", pool.name());
+    println!(
+        "✅ Created pool '{}' with blind forward strategy",
+        pool.name()
+    );
 
     // Test that blind forward always picks first
     let selected1 = pool.select_backend("test_key_1").await.unwrap();
@@ -77,7 +99,11 @@ fn test_strategy_factory_with_all_types() {
 
     for strategy_type in strategies {
         let strategy = create_strategy(strategy_type);
-        assert!(strategy.is_ok(), "Failed to create strategy: {}", strategy_type);
+        assert!(
+            strategy.is_ok(),
+            "Failed to create strategy: {}",
+            strategy_type
+        );
 
         let strategy = strategy.unwrap();
         assert_eq!(strategy.name(), strategy_type);

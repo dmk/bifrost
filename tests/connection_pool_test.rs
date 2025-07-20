@@ -1,7 +1,7 @@
 use bifrost::{
     config::Config,
-    core::{Backend, RouteTableBuilder},
     core::backend::MemcachedBackend,
+    core::{Backend, RouteTableBuilder},
 };
 
 #[tokio::test]
@@ -93,7 +93,10 @@ async fn test_backend_with_connection_pool() {
             // If it fails due to connection refused (no memcached server), that's expected
             let error_msg = e.to_string();
             if error_msg.contains("Connection refused") || error_msg.contains("Connection failed") {
-                println!("⚠️  Skipping connection pool test - memcached server not available: {}", e);
+                println!(
+                    "⚠️  Skipping connection pool test - memcached server not available: {}",
+                    e
+                );
                 // This is expected when no memcached server is running
                 return;
             } else {
@@ -173,10 +176,15 @@ routes:
     let direct_route = route_table.find_route("direct:test").unwrap();
     // This might match * first depending on HashMap iteration order
     // Let's just verify we have the right number of routes and they can be found
-    println!("Direct route matched pattern: {}", direct_route.matcher.pattern());
+    println!(
+        "Direct route matched pattern: {}",
+        direct_route.matcher.pattern()
+    );
 
     // Test that routes exist in the table
-    let mut patterns: Vec<String> = route_table.routes().iter()
+    let mut patterns: Vec<String> = route_table
+        .routes()
+        .iter()
         .map(|r| r.matcher.pattern().to_string())
         .collect();
     patterns.sort();

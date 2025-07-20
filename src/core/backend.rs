@@ -1,8 +1,8 @@
-use async_trait::async_trait;
-use tokio::net::TcpStream;
-use std::sync::Arc;
-use crate::core::connection_pool::{MemcachedPool, ConnectionPoolBuilder};
 use crate::config::BackendConfig;
+use crate::core::connection_pool::{ConnectionPoolBuilder, MemcachedPool};
+use async_trait::async_trait;
+use std::sync::Arc;
+use tokio::net::TcpStream;
 
 /// Core trait for cache backends (memcached servers)
 #[async_trait]
@@ -103,8 +103,12 @@ impl Backend for MemcachedBackend {
     async fn get_pooled_stream(&self) -> Result<TcpStream, BackendError> {
         if let Some(_pool) = &self.connection_pool {
             // Connection pool is configured for this backend
-            tracing::debug!("🏊 Backend {} has connection pool configured (min: {}, max: {})",
-                          self.name, "configured", "configured");
+            tracing::debug!(
+                "🏊 Backend {} has connection pool configured (min: {}, max: {})",
+                self.name,
+                "configured",
+                "configured"
+            );
 
             // For demo purposes, just use direct connection but log that pool is available
             // In production with real backends, this would use the actual pool

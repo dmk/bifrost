@@ -1,6 +1,6 @@
 use bifrost::{
     config::Config,
-    core::{RouteTableBuilder, GlobMatcher, Matcher},
+    core::{GlobMatcher, Matcher, RouteTableBuilder},
 };
 
 #[tokio::test]
@@ -38,7 +38,9 @@ routes:
     assert_eq!(route_table.routes().len(), 3);
 
     // Test that all routes exist in the table (order may vary due to HashMap)
-    let mut patterns: Vec<String> = route_table.routes().iter()
+    let mut patterns: Vec<String> = route_table
+        .routes()
+        .iter()
         .map(|r| r.matcher.pattern().to_string())
         .collect();
     patterns.sort();
@@ -92,7 +94,9 @@ routes:
     assert_eq!(route_table.routes().len(), 3);
 
     // Test that all routes exist in the table (order may vary due to HashMap)
-    let mut patterns: Vec<String> = route_table.routes().iter()
+    let mut patterns: Vec<String> = route_table
+        .routes()
+        .iter()
         .map(|r| r.matcher.pattern().to_string())
         .collect();
     patterns.sort();

@@ -1,8 +1,8 @@
-use std::sync::Arc;
 use super::backend::Backend;
-use super::pool::{Pool, BasicPool};
-use super::strategy::{create_strategy};
+use super::pool::{BasicPool, Pool};
+use super::strategy::create_strategy;
 use crate::config::Config;
+use std::sync::Arc;
 
 /// Fast immutable route table for thread-safe routing
 pub struct RouteTable {
@@ -97,10 +97,10 @@ impl RouteTableBuilder {
         let mut backends = std::collections::HashMap::new();
         for (name, backend_config) in &config.backends {
             // Create backends with connection pooling support
-            let backend = crate::core::backend::MemcachedBackend::from_config(
-                name.clone(),
-                backend_config,
-            ).await.map_err(|e| RouteTableError::BackendCreationFailed(e.to_string()))?;
+            let backend =
+                crate::core::backend::MemcachedBackend::from_config(name.clone(), backend_config)
+                    .await
+                    .map_err(|e| RouteTableError::BackendCreationFailed(e.to_string()))?;
 
             backends.insert(name.clone(), Arc::new(backend) as Arc<dyn Backend>);
         }
@@ -111,12 +111,14 @@ impl RouteTableBuilder {
             // Collect backends for this pool
             let mut pool_backends = Vec::new();
             for backend_name in &pool_config.backends {
-                let backend = backends.get(backend_name)
+                let backend = backends
+                    .get(backend_name)
                     .ok_or_else(|| RouteTableError::BackendNotFound(backend_name.clone()))?;
 
                 // Clone the backend (this clones the Arc, not the underlying object)
                 let backend_clone = Arc::clone(backend);
-                pool_backends.push(Box::new(BackendWrapper::new(backend_clone)) as Box<dyn Backend>);
+                pool_backends
+                    .push(Box::new(BackendWrapper::new(backend_clone)) as Box<dyn Backend>);
             }
 
             // Create strategy
@@ -132,11 +134,22 @@ impl RouteTableBuilder {
             // Create pool - use ConcurrentPool for miss_failover strategy
             let pool: Arc<dyn Pool> = if strategy.name() == "miss_failover" {
                 // Create ConcurrentPool for miss failover strategy
-                tracing::info!("🔄 Creating ConcurrentPool for miss failover strategy: {}", name);
-                Arc::new(super::pool::ConcurrentPool::new(name.clone(), pool_backends, strategy))
+                tracing::info!(
+                    "🔄 Creating ConcurrentPool for miss failover strategy: {}",
+                    name
+                );
+                Arc::new(super::pool::ConcurrentPool::new(
+                    name.clone(),
+                    pool_backends,
+                    strategy,
+                ))
             } else {
                 // Create regular BasicPool for other strategies
-                tracing::info!("📦 Creating BasicPool for strategy {}: {}", strategy.name(), name);
+                tracing::info!(
+                    "📦 Creating BasicPool for strategy {}: {}",
+                    strategy.name(),
+                    name
+                );
                 Arc::new(BasicPool::new(name.clone(), pool_backends, strategy))
             };
             pools.insert(name.clone(), pool);
@@ -144,25 +157,25 @@ impl RouteTableBuilder {
 
         // Build routes
         for (_route_name, route_config) in &config.routes {
-            let matcher = Box::new(GlobMatcher::new(route_config.matcher.clone())) as Box<dyn Matcher>;
+            let matcher =
+                Box::new(GlobMatcher::new(route_config.matcher.clone())) as Box<dyn Matcher>;
 
             let target = match &route_config.target {
                 crate::config::RouteTarget::Backend { backend } => {
-                    let backend_ref = backends.get(backend)
+                    let backend_ref = backends
+                        .get(backend)
                         .ok_or_else(|| RouteTableError::BackendNotFound(backend.clone()))?;
                     ResolvedTarget::Backend(Arc::clone(backend_ref))
                 }
                 crate::config::RouteTarget::Pool { pool } => {
-                    let pool_ref = pools.get(pool)
+                    let pool_ref = pools
+                        .get(pool)
                         .ok_or_else(|| RouteTableError::PoolNotFound(pool.clone()))?;
                     ResolvedTarget::Pool(Arc::clone(pool_ref))
                 }
             };
 
-            routes.push(Route {
-                matcher,
-                target,
-            });
+            routes.push(Route { matcher, target });
         }
 
         Ok(Arc::new(RouteTable::new(routes)))
@@ -198,12 +211,12 @@ impl Backend for BackendWrapper {
         self.backend.uses_connection_pool()
     }
 
-    async fn get_pooled_stream(&self) -> Result<tokio::net::TcpStream, crate::core::backend::BackendError> {
+    async fn get_pooled_stream(
+        &self,
+    ) -> Result<tokio::net::TcpStream, crate::core::backend::BackendError> {
         self.backend.get_pooled_stream().await
     }
 }
-
-
 
 #[derive(Debug, thiserror::Error)]
 pub enum RouteTableError {
@@ -238,15 +251,13 @@ mod tests {
 
     #[test]
     fn test_route_table_lookup() {
-                 let routes = vec![
-             Route {
-                 matcher: Box::new(GlobMatcher::new("user:*".to_string())),
-                 target: ResolvedTarget::Backend(Arc::new(crate::core::backend::MemcachedBackend::new(
-                     "test".to_string(),
-                     "127.0.0.1:11211".to_string()
-                 ))),
-             }
-         ];
+        let routes = vec![Route {
+            matcher: Box::new(GlobMatcher::new("user:*".to_string())),
+            target: ResolvedTarget::Backend(Arc::new(crate::core::backend::MemcachedBackend::new(
+                "test".to_string(),
+                "127.0.0.1:11211".to_string(),
+            ))),
+        }];
 
         let table = RouteTable::new(routes);
 

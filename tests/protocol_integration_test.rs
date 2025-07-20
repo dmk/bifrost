@@ -2,7 +2,6 @@ use bifrost::core::protocols::{AsciiProtocol, Protocol};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-
 /// Mock backend that responds to ASCII commands
 async fn mock_memcached_backend(mut stream: TcpStream) {
     let mut buffer = [0u8; 1024];
@@ -42,8 +41,6 @@ async fn mock_memcached_backend(mut stream: TcpStream) {
     }
 }
 
-
-
 #[tokio::test]
 async fn test_ascii_protocol_get_command() {
     // Start mock backend
@@ -61,7 +58,7 @@ async fn test_ascii_protocol_get_command() {
 
     // Create mock client stream (simulating parsed input)
     let _client_stream = TcpStream::connect("127.0.0.1:0").await.is_err(); // This will fail, but that's ok for this test pattern
-    // For a full integration test, we'd need to set up proper bidirectional streams
+                                                                           // For a full integration test, we'd need to set up proper bidirectional streams
 
     // This test verifies the protocol exists and can be instantiated
     assert_eq!(protocol.name(), "ascii");
@@ -98,9 +95,24 @@ async fn test_ascii_protocol_command_reconstruction() {
                 assert!(!keys.is_empty());
                 assert!(parsed.expects_response());
             }
-            AsciiCommand::Set { key, bytes, noreply, .. } |
-            AsciiCommand::Add { key, bytes, noreply, .. } |
-            AsciiCommand::Replace { key, bytes, noreply, .. } => {
+            AsciiCommand::Set {
+                key,
+                bytes,
+                noreply,
+                ..
+            }
+            | AsciiCommand::Add {
+                key,
+                bytes,
+                noreply,
+                ..
+            }
+            | AsciiCommand::Replace {
+                key,
+                bytes,
+                noreply,
+                ..
+            } => {
                 assert!(!key.is_empty());
                 assert!(*bytes > 0); // bytes should be positive for storage commands
                 assert_eq!(parsed.expects_response(), !noreply);
@@ -109,8 +121,16 @@ async fn test_ascii_protocol_command_reconstruction() {
                 assert!(!key.is_empty());
                 assert_eq!(parsed.expects_response(), !noreply);
             }
-            AsciiCommand::Incr { key, value: _, noreply } |
-            AsciiCommand::Decr { key, value: _, noreply } => {
+            AsciiCommand::Incr {
+                key,
+                value: _,
+                noreply,
+            }
+            | AsciiCommand::Decr {
+                key,
+                value: _,
+                noreply,
+            } => {
                 assert!(!key.is_empty());
                 // value can be 0 for increment/decrement operations
                 assert_eq!(parsed.expects_response(), !noreply);
@@ -118,8 +138,7 @@ async fn test_ascii_protocol_command_reconstruction() {
             AsciiCommand::FlushAll { noreply, .. } => {
                 assert_eq!(parsed.expects_response(), !noreply);
             }
-            AsciiCommand::Stats { .. } |
-            AsciiCommand::Version => {
+            AsciiCommand::Stats { .. } | AsciiCommand::Version => {
                 assert!(parsed.expects_response());
             }
             AsciiCommand::Quit => {
@@ -141,22 +160,26 @@ async fn test_protocol_error_handling() {
     use bifrost::core::protocols::AsciiCommand;
 
     let invalid_commands = vec![
-        "", // Empty command
-        "INVALID_COMMAND\r\n", // Unknown command
-        "GET\r\n", // Missing key
-        "SET key\r\n", // Missing parameters
+        "",                      // Empty command
+        "INVALID_COMMAND\r\n",   // Unknown command
+        "GET\r\n",               // Missing key
+        "SET key\r\n",           // Missing parameters
         "SET key abc 300 5\r\n", // Invalid flags
-        "SET key 0 abc 5\r\n", // Invalid exptime
+        "SET key 0 abc 5\r\n",   // Invalid exptime
         "SET key 0 300 abc\r\n", // Invalid bytes
-        "DELETE\r\n", // Missing key
-        "INCR counter\r\n", // Missing value
-        "INCR counter abc\r\n", // Invalid value
-        "DECR counter abc\r\n", // Invalid value
+        "DELETE\r\n",            // Missing key
+        "INCR counter\r\n",      // Missing value
+        "INCR counter abc\r\n",  // Invalid value
+        "DECR counter abc\r\n",  // Invalid value
     ];
 
     for cmd in invalid_commands {
         let result = AsciiCommand::parse(cmd);
-        assert!(result.is_err(), "Command '{}' should have failed to parse", cmd);
+        assert!(
+            result.is_err(),
+            "Command '{}' should have failed to parse",
+            cmd
+        );
     }
 }
 
@@ -175,7 +198,10 @@ async fn test_response_parsing_edge_cases() {
         ("OK", AsciiResponse::Ok),
         ("END", AsciiResponse::End),
         ("ERROR", AsciiResponse::Error("ERROR".to_string())),
-        ("VERSION 1.6.21", AsciiResponse::Version("1.6.21".to_string())),
+        (
+            "VERSION 1.6.21",
+            AsciiResponse::Version("1.6.21".to_string()),
+        ),
     ];
 
     for (input, expected) in valid_responses {
@@ -189,7 +215,10 @@ async fn test_response_parsing_edge_cases() {
 
     // Test VALUE response parsing
     let value_result = AsciiResponse::parse("VALUE mykey 123 5").unwrap();
-    if let AsciiResponse::Value { key, flags, bytes, .. } = value_result {
+    if let AsciiResponse::Value {
+        key, flags, bytes, ..
+    } = value_result
+    {
         assert_eq!(key, "mykey");
         assert_eq!(flags, 123);
         assert_eq!(bytes, 5);
@@ -209,14 +238,17 @@ async fn test_response_parsing_edge_cases() {
     // Test invalid responses
     let invalid_responses = vec![
         "UNKNOWN_RESPONSE",
-        "VALUE key", // Missing parameters
+        "VALUE key",       // Missing parameters
         "VALUE key abc 5", // Invalid flags
-        "STAT", // Missing key/value
+        "STAT",            // Missing key/value
     ];
 
     for invalid in invalid_responses {
-        assert!(AsciiResponse::parse(invalid).is_err(),
-                "Response '{}' should have failed to parse", invalid);
+        assert!(
+            AsciiResponse::parse(invalid).is_err(),
+            "Response '{}' should have failed to parse",
+            invalid
+        );
     }
 }
 
@@ -238,8 +270,11 @@ async fn test_protocol_noreply_handling() {
 
     for cmd_str in noreply_commands {
         let parsed = AsciiCommand::parse(cmd_str).unwrap();
-        assert!(!parsed.expects_response(),
-                "Command '{}' with noreply should not expect response", cmd_str);
+        assert!(
+            !parsed.expects_response(),
+            "Command '{}' with noreply should not expect response",
+            cmd_str
+        );
     }
 
     // Commands without noreply should expect responses (except QUIT)
@@ -254,8 +289,11 @@ async fn test_protocol_noreply_handling() {
 
     for cmd_str in reply_commands {
         let parsed = AsciiCommand::parse(cmd_str).unwrap();
-        assert!(parsed.expects_response(),
-                "Command '{}' should expect response", cmd_str);
+        assert!(
+            parsed.expects_response(),
+            "Command '{}' should expect response",
+            cmd_str
+        );
     }
 
     // QUIT never expects response

@@ -15,19 +15,31 @@ async fn test_working_pools_config_loads() {
             assert!(!config.routes.is_empty(), "Should have routes");
 
             // Check specific pools exist
-            assert!(config.pools.contains_key("balanced_pool"), "Should have balanced_pool");
-            assert!(config.pools.contains_key("simple_pool"), "Should have simple_pool");
+            assert!(
+                config.pools.contains_key("balanced_pool"),
+                "Should have balanced_pool"
+            );
+            assert!(
+                config.pools.contains_key("simple_pool"),
+                "Should have simple_pool"
+            );
 
             // Check pool configurations use implemented strategies
             let balanced_pool = &config.pools["balanced_pool"];
             assert_eq!(balanced_pool.backends.len(), 3);
             assert!(balanced_pool.strategy.is_some());
-            assert_eq!(balanced_pool.strategy.as_ref().unwrap().strategy_type, "round_robin");
+            assert_eq!(
+                balanced_pool.strategy.as_ref().unwrap().strategy_type,
+                "round_robin"
+            );
 
             let simple_pool = &config.pools["simple_pool"];
             assert_eq!(simple_pool.backends.len(), 2);
             assert!(simple_pool.strategy.is_some());
-            assert_eq!(simple_pool.strategy.as_ref().unwrap().strategy_type, "blind_forward");
+            assert_eq!(
+                simple_pool.strategy.as_ref().unwrap().strategy_type,
+                "blind_forward"
+            );
 
             println!("✅ All pool configurations use implemented strategies!");
         }
@@ -52,19 +64,45 @@ async fn test_pools_demo_config_loads() {
             assert!(!config.routes.is_empty(), "Should have routes");
 
             // Check specific pools exist
-            assert!(config.pools.contains_key("balanced_pool"), "Should have balanced_pool");
-            assert!(config.pools.contains_key("simple_pool"), "Should have simple_pool");
+            assert!(
+                config.pools.contains_key("balanced_pool"),
+                "Should have balanced_pool"
+            );
+            assert!(
+                config.pools.contains_key("simple_pool"),
+                "Should have simple_pool"
+            );
 
             // Verify pool configurations
             let balanced_pool = &config.pools["balanced_pool"];
-            assert_eq!(balanced_pool.backends.len(), 3, "balanced_pool should have 3 backends");
-            assert!(balanced_pool.strategy.is_some(), "balanced_pool should have strategy");
-            assert_eq!(balanced_pool.strategy.as_ref().unwrap().strategy_type, "round_robin");
+            assert_eq!(
+                balanced_pool.backends.len(),
+                3,
+                "balanced_pool should have 3 backends"
+            );
+            assert!(
+                balanced_pool.strategy.is_some(),
+                "balanced_pool should have strategy"
+            );
+            assert_eq!(
+                balanced_pool.strategy.as_ref().unwrap().strategy_type,
+                "round_robin"
+            );
 
             let simple_pool = &config.pools["simple_pool"];
-            assert_eq!(simple_pool.backends.len(), 2, "simple_pool should have 2 backends");
-            assert!(simple_pool.strategy.is_some(), "simple_pool should have strategy");
-            assert_eq!(simple_pool.strategy.as_ref().unwrap().strategy_type, "blind_forward");
+            assert_eq!(
+                simple_pool.backends.len(),
+                2,
+                "simple_pool should have 2 backends"
+            );
+            assert!(
+                simple_pool.strategy.is_some(),
+                "simple_pool should have strategy"
+            );
+            assert_eq!(
+                simple_pool.strategy.as_ref().unwrap().strategy_type,
+                "blind_forward"
+            );
 
             // Verify backends
             assert!(config.backends.contains_key("cache1"), "Should have cache1");
@@ -72,10 +110,22 @@ async fn test_pools_demo_config_loads() {
             assert!(config.backends.contains_key("cache3"), "Should have cache3");
 
             // Verify routes
-            assert!(config.routes.contains_key("direct"), "Should have direct route");
-            assert!(config.routes.contains_key("balanced"), "Should have balanced route");
-            assert!(config.routes.contains_key("simple"), "Should have simple route");
-            assert!(config.routes.contains_key("default"), "Should have default route");
+            assert!(
+                config.routes.contains_key("direct"),
+                "Should have direct route"
+            );
+            assert!(
+                config.routes.contains_key("balanced"),
+                "Should have balanced route"
+            );
+            assert!(
+                config.routes.contains_key("simple"),
+                "Should have simple route"
+            );
+            assert!(
+                config.routes.contains_key("default"),
+                "Should have default route"
+            );
 
             // Test config validation
             match config.validate() {
@@ -100,7 +150,10 @@ async fn test_simple_config_still_works() {
             println!("✅ simple.yaml still loads correctly!");
 
             // Should work with old format (no pools)
-            assert!(config.pools.is_empty(), "Simple config shouldn't have pools");
+            assert!(
+                config.pools.is_empty(),
+                "Simple config shouldn't have pools"
+            );
             assert!(!config.backends.is_empty(), "Should still have backends");
             assert!(!config.routes.is_empty(), "Should still have routes");
 

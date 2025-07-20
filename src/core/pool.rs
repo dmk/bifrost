@@ -1,6 +1,6 @@
-use async_trait::async_trait;
 use super::backend::{Backend, BackendError};
 use super::strategy::Strategy;
+use async_trait::async_trait;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::TcpStream;
@@ -29,7 +29,11 @@ pub trait Pool: Send + Sync {
     }
 
     /// Handle concurrent requests (optional, default implementation delegates to select_backend)
-    async fn handle_concurrent_request(&self, key: &str, _request_data: &[u8]) -> Result<Vec<u8>, PoolError> {
+    async fn handle_concurrent_request(
+        &self,
+        key: &str,
+        _request_data: &[u8],
+    ) -> Result<Vec<u8>, PoolError> {
         // Default implementation: just select one backend and handle normally
         let _backend = self.select_backend(key).await?;
         // This would need to be implemented by the protocol layer
@@ -59,7 +63,10 @@ impl BasicPool {
 impl Pool for BasicPool {
     async fn select_backend(&self, _key: &str) -> Result<&dyn Backend, PoolError> {
         // Use the strategy to select from available backends
-        let selected = self.strategy.select_backend(&self.backends).await
+        let selected = self
+            .strategy
+            .select_backend(&self.backends)
+            .await
             .ok_or(PoolError::NoBackendsAvailable)?;
 
         Ok(selected.as_ref())
@@ -114,8 +121,8 @@ impl ConcurrentPool {
             return Err(PoolError::NoBackendsAvailable);
         }
 
-        use tokio::time::timeout;
         use futures::future::FutureExt;
+        use tokio::time::timeout;
 
         // Create a vector to hold all the backend request futures
         let mut futures = Vec::new();
@@ -135,12 +142,20 @@ impl ConcurrentPool {
                 use tokio::io::AsyncWriteExt;
 
                 if let Err(e) = stream.write_all(request_data).await {
-                    tracing::warn!("Failed to send request to backend {}: {}", backend.name(), e);
+                    tracing::warn!(
+                        "Failed to send request to backend {}: {}",
+                        backend.name(),
+                        e
+                    );
                     return Err(PoolError::IoError(e.to_string()));
                 }
 
                 if let Err(e) = stream.flush().await {
-                    tracing::warn!("Failed to flush request to backend {}: {}", backend.name(), e);
+                    tracing::warn!(
+                        "Failed to flush request to backend {}: {}",
+                        backend.name(),
+                        e
+                    );
                     return Err(PoolError::IoError(e.to_string()));
                 }
 
@@ -152,7 +167,11 @@ impl ConcurrentPool {
                         let is_cache_hit = response_str.contains("VALUE");
 
                         if is_cache_hit {
-                            tracing::debug!("Backend {} returned cache HIT ({} bytes)", backend.name(), response.len());
+                            tracing::debug!(
+                                "Backend {} returned cache HIT ({} bytes)",
+                                backend.name(),
+                                response.len()
+                            );
                             Ok((index, response))
                         } else {
                             tracing::debug!("Backend {} returned cache MISS", backend.name());
@@ -160,7 +179,11 @@ impl ConcurrentPool {
                         }
                     }
                     Err(e) => {
-                        tracing::warn!("Failed to read response from backend {}: {}", backend.name(), e);
+                        tracing::warn!(
+                            "Failed to read response from backend {}: {}",
+                            backend.name(),
+                            e
+                        );
                         Err(PoolError::IoError(e.to_string()))
                     }
                 }
@@ -177,7 +200,12 @@ impl ConcurrentPool {
         let mut remaining_futures = futures;
 
         while !remaining_futures.is_empty() {
-            match timeout(timeout_duration, futures::future::select_all(remaining_futures)).await {
+            match timeout(
+                timeout_duration,
+                futures::future::select_all(remaining_futures),
+            )
+            .await
+            {
                 Ok((result, _index, remaining)) => {
                     remaining_futures = remaining;
 
@@ -194,10 +222,14 @@ impl ConcurrentPool {
                     // If we have responses, sort by backend index (priority) and return the first
                     if !completed_futures.is_empty() {
                         completed_futures.sort_by_key(|(index, _)| *index);
-                        let (backend_index, response) = completed_futures.into_iter().next().unwrap();
+                        let (backend_index, response) =
+                            completed_futures.into_iter().next().unwrap();
 
-                        tracing::info!("ConcurrentPool: returning response from backend {} (index {})",
-                                      self.backends[backend_index].name(), backend_index);
+                        tracing::info!(
+                            "ConcurrentPool: returning response from backend {} (index {})",
+                            self.backends[backend_index].name(),
+                            backend_index
+                        );
                         return Ok(response);
                     }
                 }
@@ -210,15 +242,21 @@ impl ConcurrentPool {
 
         // If we get here, either no backends responded with meaningful data or timeout occurred
         if completed_futures.is_empty() {
-            tracing::error!("ConcurrentPool: no backends returned meaningful responses within {}ms", self.timeout_ms);
+            tracing::error!(
+                "ConcurrentPool: no backends returned meaningful responses within {}ms",
+                self.timeout_ms
+            );
             Err(PoolError::AllBackendsEmpty)
         } else {
             // We have some responses, return the highest priority one
             completed_futures.sort_by_key(|(index, _)| *index);
             let (backend_index, response) = completed_futures.into_iter().next().unwrap();
 
-            tracing::info!("ConcurrentPool: returning response from backend {} (index {}) after timeout",
-                          self.backends[backend_index].name(), backend_index);
+            tracing::info!(
+                "ConcurrentPool: returning response from backend {} (index {}) after timeout",
+                self.backends[backend_index].name(),
+                backend_index
+            );
             Ok(response)
         }
     }
@@ -230,7 +268,8 @@ impl Pool for ConcurrentPool {
         // For concurrent pool, we don't really "select" a single backend
         // But we need to implement this for compatibility
         // Return the first backend as a fallback
-        self.backends.first()
+        self.backends
+            .first()
             .map(|b| b.as_ref())
             .ok_or(PoolError::NoBackendsAvailable)
     }
@@ -255,7 +294,11 @@ impl Pool for ConcurrentPool {
         true // ConcurrentPool supports concurrent requests
     }
 
-    async fn handle_concurrent_request(&self, _key: &str, request_data: &[u8]) -> Result<Vec<u8>, PoolError> {
+    async fn handle_concurrent_request(
+        &self,
+        _key: &str,
+        request_data: &[u8],
+    ) -> Result<Vec<u8>, PoolError> {
         self.send_concurrent_requests(request_data).await
     }
 }
@@ -295,10 +338,16 @@ async fn read_memcached_response(stream: &mut TcpStream) -> Result<Vec<u8>, std:
 
         // Check if this is the end of the response
         let trimmed = line.trim();
-        if trimmed == "END" || trimmed == "STORED" || trimmed == "NOT_STORED" ||
-           trimmed == "EXISTS" || trimmed == "NOT_FOUND" || trimmed == "DELETED" ||
-           trimmed.starts_with("ERROR") || trimmed.starts_with("CLIENT_ERROR") ||
-           trimmed.starts_with("SERVER_ERROR") {
+        if trimmed == "END"
+            || trimmed == "STORED"
+            || trimmed == "NOT_STORED"
+            || trimmed == "EXISTS"
+            || trimmed == "NOT_FOUND"
+            || trimmed == "DELETED"
+            || trimmed.starts_with("ERROR")
+            || trimmed.starts_with("CLIENT_ERROR")
+            || trimmed.starts_with("SERVER_ERROR")
+        {
             break;
         }
 
@@ -331,12 +380,12 @@ mod tests {
         // Create some test backends
         let backend1 = Box::new(MemcachedBackend::new(
             "test1".to_string(),
-            "127.0.0.1:11211".to_string()
+            "127.0.0.1:11211".to_string(),
         )) as Box<dyn Backend>;
 
         let backend2 = Box::new(MemcachedBackend::new(
             "test2".to_string(),
-            "127.0.0.1:11212".to_string()
+            "127.0.0.1:11212".to_string(),
         )) as Box<dyn Backend>;
 
         let backends = vec![backend1, backend2];
@@ -357,7 +406,7 @@ mod tests {
         // Create a backend
         let backend = Box::new(MemcachedBackend::new(
             "test1".to_string(),
-            "127.0.0.1:11211".to_string()
+            "127.0.0.1:11211".to_string(),
         )) as Box<dyn Backend>;
 
         let backends = vec![backend];
@@ -406,12 +455,12 @@ mod tests {
         // Create some test backends
         let backend1 = Box::new(MemcachedBackend::new(
             "test1".to_string(),
-            "127.0.0.1:11211".to_string()
+            "127.0.0.1:11211".to_string(),
         )) as Box<dyn Backend>;
 
         let backend2 = Box::new(MemcachedBackend::new(
             "test2".to_string(),
-            "127.0.0.1:11212".to_string()
+            "127.0.0.1:11212".to_string(),
         )) as Box<dyn Backend>;
 
         let backends = vec![backend1, backend2];
