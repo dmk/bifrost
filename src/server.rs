@@ -103,7 +103,7 @@ impl BifrostServer {
 
 /// Handle concurrent pool requests (miss failover)
 async fn handle_concurrent_pool_request(
-    mut client_reader: tokio::io::BufReader<TcpStream>,
+    client_reader: tokio::io::BufReader<TcpStream>,
     pool: &Arc<dyn crate::core::Pool>,
     key: &str,
     first_line: &str,
@@ -147,8 +147,9 @@ async fn handle_concurrent_pool_request(
         Err(e) => {
             error!("Concurrent pool request failed: {}", e);
 
-            // Send error response to client
-            let error_response = b"SERVER_ERROR concurrent request failed\r\n";
+            // For miss failover, most errors should now be rare since cache misses
+            // are handled properly. Send appropriate error response to client.
+            let error_response = b"SERVER_ERROR backend pool error\r\n";
             let mut client_stream = client_reader.into_inner();
             client_stream.write_all(error_response).await.map_err(|e| {
                 ServerError::IoError(format!("Failed to write error response: {}", e))
@@ -162,25 +163,7 @@ async fn handle_concurrent_pool_request(
     }
 }
 
-/// Check if a command requires reading data payload
-fn is_storage_command(line: &str) -> bool {
-    let parts: Vec<&str> = line.trim().split_whitespace().collect();
-    if parts.is_empty() {
-        return false;
-    }
 
-    matches!(parts[0].to_uppercase().as_str(), "SET" | "ADD" | "REPLACE")
-}
-
-/// Extract byte count from storage command line (SET key flags exptime bytes [noreply])
-fn extract_byte_count(line: &str) -> Option<usize> {
-    let parts: Vec<&str> = line.trim().split_whitespace().collect();
-    if parts.len() >= 5 {
-        parts[4].parse().ok()
-    } else {
-        None
-    }
-}
 
 /// Handle a client connection using our route table system
 async fn handle_connection_with_routing(
