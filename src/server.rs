@@ -1,6 +1,5 @@
 use crate::config::Config;
 use crate::core::{Protocol, RouteTable, RouteTableBuilder};
-use crate::core::backend::MemcachedBackend;
 use crate::core::protocols::AsciiProtocol;
 use crate::core::route_table::ResolvedTarget;
 use tokio::net::{TcpListener, TcpStream};
@@ -29,21 +28,22 @@ pub struct BifrostServer {
 }
 
 impl BifrostServer {
-    pub fn new(config: Config) -> Self {
+    pub async fn new(config: Config) -> Result<Self, ServerError> {
         // Build route table from config
         let route_table = RouteTableBuilder::build_from_config(&config)
-            .expect("Failed to build route table from config");
+            .await
+            .map_err(|e| ServerError::RouteTableBuildFailed(e.to_string()))?;
 
         info!("Route table built with {} routes", route_table.routes().len());
 
         // Use ASCII protocol to parse keys for routing
         let protocol = Arc::new(AsciiProtocol::new()) as Arc<dyn Protocol>;
 
-        Self {
+        Ok(Self {
             config: Arc::new(config),
             route_table,
             protocol,
-        }
+        })
     }
 
     /// Start the server and listen for connections
@@ -123,11 +123,11 @@ async fn handle_connection_with_routing(
 
     debug!("Key '{}' matched route pattern: '{}'", key, route.matcher.pattern());
 
-    // Select backend based on route target
-    let backend = match &route.target {
+    // Select backend based on route target and connect using the appropriate method
+    let mut backend_socket = match &route.target {
         ResolvedTarget::Backend(backend) => {
             debug!("Route targets backend: {}", backend.name());
-            Arc::clone(backend)
+            connect_to_backend(backend, &key).await?
         }
         ResolvedTarget::Pool(pool) => {
             debug!("Route targets pool: {} with strategy: {}", pool.name(), pool.strategy().name());
@@ -136,20 +136,10 @@ async fn handle_connection_with_routing(
 
             debug!("Pool selected backend: {}", selected.name());
 
-            // We need to convert the pool's selected backend to Arc<dyn Backend>
-            // For now, create a new MemcachedBackend (not ideal, but works for testing)
-            Arc::new(MemcachedBackend::new(selected.name().to_string(), selected.server().to_string()))
+            // Use the selected backend directly (it has the connection pool configuration)
+            connect_to_backend_ref(selected, &key).await?
         }
     };
-
-    info!("🎯 Key '{}' routed to backend: {} ({})", key, backend.name(), backend.server());
-
-    // Connect to the selected backend
-    let mut backend_socket = backend.connect()
-        .await
-        .map_err(|e| ServerError::BackendConnectionFailed(e.to_string()))?;
-
-    debug!("Connected to backend: {}", backend.server());
 
     // Forward the first line that we already read
     backend_socket.write_all(first_line.as_bytes()).await
@@ -180,6 +170,44 @@ async fn handle_connection_with_routing(
 
     debug!("Connection closed");
     Ok(())
+}
+
+/// Connect to a backend using connection pooling if available
+async fn connect_to_backend(backend: &Arc<dyn crate::core::Backend>, key: &str) -> Result<TcpStream, ServerError> {
+    if backend.uses_connection_pool() {
+        debug!("🏊 Backend {} has connection pooling configured", backend.name());
+        let stream = backend.get_pooled_stream().await
+            .map_err(|e| ServerError::BackendConnectionFailed(format!("Connection failed: {}", e)))?;
+
+        info!("🎯 Key '{}' routed to backend: {} ({}) [POOL-READY]", key, backend.name(), backend.server());
+        Ok(stream)
+    } else {
+        debug!("🔗 Using direct connection for backend: {}", backend.name());
+        let stream = backend.connect().await
+            .map_err(|e| ServerError::BackendConnectionFailed(e.to_string()))?;
+
+        info!("🎯 Key '{}' routed to backend: {} ({}) [DIRECT]", key, backend.name(), backend.server());
+        Ok(stream)
+    }
+}
+
+/// Connect to a backend reference using connection pooling if available
+async fn connect_to_backend_ref(backend: &dyn crate::core::Backend, key: &str) -> Result<TcpStream, ServerError> {
+    if backend.uses_connection_pool() {
+        debug!("🏊 Backend {} has connection pooling configured", backend.name());
+        let stream = backend.get_pooled_stream().await
+            .map_err(|e| ServerError::BackendConnectionFailed(format!("Connection failed: {}", e)))?;
+
+        info!("🎯 Key '{}' routed to backend: {} ({}) [POOL-READY]", key, backend.name(), backend.server());
+        Ok(stream)
+    } else {
+        debug!("🔗 Using direct connection for backend: {}", backend.name());
+        let stream = backend.connect().await
+            .map_err(|e| ServerError::BackendConnectionFailed(e.to_string()))?;
+
+        info!("🎯 Key '{}' routed to backend: {} ({}) [DIRECT]", key, backend.name(), backend.server());
+        Ok(stream)
+    }
 }
 
 /// Extract key from memcached request line (simple implementation)
@@ -225,4 +253,6 @@ pub enum ServerError {
     BackendConnectionFailed(String),
     #[error("IO error: {0}")]
     IoError(String),
+    #[error("Failed to build route table: {0}")]
+    RouteTableBuildFailed(String),
 }

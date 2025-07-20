@@ -90,16 +90,18 @@ pub struct RouteTableBuilder;
 
 impl RouteTableBuilder {
     /// Build a route table from configuration
-    pub fn build_from_config(config: &Config) -> Result<Arc<RouteTable>, RouteTableError> {
+    pub async fn build_from_config(config: &Config) -> Result<Arc<RouteTable>, RouteTableError> {
         let mut routes = Vec::new();
 
         // Build backends
         let mut backends = std::collections::HashMap::new();
         for (name, backend_config) in &config.backends {
-            let backend = crate::core::backend::MemcachedBackend::new(
+            // Create backends with connection pooling support
+            let backend = crate::core::backend::MemcachedBackend::from_config(
                 name.clone(),
-                backend_config.server.clone(),
-            );
+                backend_config,
+            ).await.map_err(|e| RouteTableError::BackendCreationFailed(e.to_string()))?;
+
             backends.insert(name.clone(), Arc::new(backend) as Arc<dyn Backend>);
         }
 
@@ -183,6 +185,14 @@ impl Backend for BackendWrapper {
     fn server(&self) -> &str {
         self.backend.server()
     }
+
+    fn uses_connection_pool(&self) -> bool {
+        self.backend.uses_connection_pool()
+    }
+
+    async fn get_pooled_stream(&self) -> Result<tokio::net::TcpStream, crate::core::backend::BackendError> {
+        self.backend.get_pooled_stream().await
+    }
 }
 
 
@@ -195,6 +205,8 @@ pub enum RouteTableError {
     PoolNotFound(String),
     #[error("Strategy error: {0}")]
     StrategyError(String),
+    #[error("Backend creation failed: {0}")]
+    BackendCreationFailed(String),
 }
 
 #[cfg(test)]

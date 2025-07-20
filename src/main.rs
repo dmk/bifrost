@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Create and start server
-    let server = BifrostServer::new(config);
+    let server = BifrostServer::new(config).await?;
 
     // Set up graceful shutdown
     tokio::select! {

@@ -21,7 +21,42 @@ pub struct BackendConfig {
     #[serde(rename = "type")]
     pub backend_type: String,
     pub server: String,
+    #[serde(default)]
+    pub connection_pool: Option<ConnectionPoolConfig>,
 }
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ConnectionPoolConfig {
+    #[serde(default = "default_min_connections")]
+    pub min_connections: u32,
+    #[serde(default = "default_max_connections")]
+    pub max_connections: u32,
+    #[serde(default = "default_connection_timeout_secs")]
+    pub connection_timeout_secs: u64,
+    #[serde(default = "default_idle_timeout_secs")]
+    pub idle_timeout_secs: u64,
+    #[serde(default = "default_max_lifetime_secs")]
+    pub max_lifetime_secs: u64,
+}
+
+impl Default for ConnectionPoolConfig {
+    fn default() -> Self {
+        Self {
+            min_connections: default_min_connections(),
+            max_connections: default_max_connections(),
+            connection_timeout_secs: default_connection_timeout_secs(),
+            idle_timeout_secs: default_idle_timeout_secs(),
+            max_lifetime_secs: default_max_lifetime_secs(),
+        }
+    }
+}
+
+// Default values for connection pool configuration
+fn default_min_connections() -> u32 { 2 }
+fn default_max_connections() -> u32 { 10 }
+fn default_connection_timeout_secs() -> u64 { 5 }
+fn default_idle_timeout_secs() -> u64 { 300 } // 5 minutes
+fn default_max_lifetime_secs() -> u64 { 3600 } // 1 hour
 
 // New: Pool configuration for collections of backends
 #[derive(Debug, Clone, Deserialize, Serialize)]
