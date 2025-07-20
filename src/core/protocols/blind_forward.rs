@@ -24,8 +24,8 @@ impl Default for BlindForwardProtocol {
 
 #[async_trait]
 impl Protocol for BlindForwardProtocol {
-    async fn handle_connection(&self, client: TcpStream, backend: TcpStream) -> Result<(), ProtocolError> {
-        crate::server::proxy_bidirectional(client, backend)
+    async fn handle_connection(&self, mut client: TcpStream, mut backend: TcpStream) -> Result<(), ProtocolError> {
+        crate::server::proxy_bidirectional(&mut client, &mut backend)
             .await
             .map_err(|e| ProtocolError::ForwardingFailed(e.to_string()))
     }

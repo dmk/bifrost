@@ -160,11 +160,21 @@ async fn handle_connection_with_routing(
 
     debug!("Forwarded first line to backend: {}", first_line.trim());
 
+    // Forward any data remaining in the client reader's buffer
+    let buffered_data = client_reader.buffer();
+    if !buffered_data.is_empty() {
+        backend_socket.write_all(buffered_data).await
+            .map_err(|e| ServerError::IoError(format!("Failed to write client buffer to backend: {}", e)))?;
+        backend_socket.flush().await
+            .map_err(|e| ServerError::IoError(format!("Failed to flush backend after writing client buffer: {}", e)))?;
+        debug!("Forwarded {} bytes of buffered data from client to backend", buffered_data.len());
+    }
+
     // Get the original client socket back from the buffered reader
-    let client_stream = client_reader.into_inner();
+    let mut client_stream = client_reader.into_inner();
 
     // Now use bidirectional proxy to forward everything else
-    if let Err(e) = proxy_bidirectional(client_stream, backend_socket).await {
+    if let Err(e) = proxy_bidirectional(&mut client_stream, &mut backend_socket).await {
         debug!("Bidirectional proxy ended: {}", e);
     }
 
@@ -189,27 +199,12 @@ fn extract_key_from_request(line: &str) -> Option<String> {
 }
 
 /// Proxy data bidirectionally between client and backend (optimized version)
-pub async fn proxy_bidirectional(client_socket: TcpStream, backend_socket: TcpStream) -> Result<(), std::io::Error> {
+pub async fn proxy_bidirectional(client_socket: &mut TcpStream, backend_socket: &mut TcpStream) -> Result<(), std::io::Error> {
     // Use tokio's optimized bidirectional copy for zero-copy forwarding
-    let (mut client_read, mut client_write) = client_socket.into_split();
-    let (mut backend_read, mut backend_write) = backend_socket.into_split();
+    // This is more robust than the select! loop as it handles half-closed connections
+    let (client_bytes, backend_bytes) = tokio::io::copy_bidirectional(client_socket, backend_socket).await?;
 
-    // Forward client -> backend and backend -> client concurrently
-    // This is more efficient than manual buffering
-    tokio::select! {
-        result = tokio::io::copy(&mut client_read, &mut backend_write) => {
-            match result {
-                Ok(bytes) => debug!("Client to backend forwarding completed: {} bytes", bytes),
-                Err(e) => debug!("Client to backend forwarding ended: {}", e),
-            }
-        }
-        result = tokio::io::copy(&mut backend_read, &mut client_write) => {
-            match result {
-                Ok(bytes) => debug!("Backend to client forwarding completed: {} bytes", bytes),
-                Err(e) => debug!("Backend to client forwarding ended: {}", e),
-            }
-        }
-    }
+    debug!("Bidirectional proxy completed. client->backend: {} bytes, backend->client: {} bytes", client_bytes, backend_bytes);
 
     Ok(())
 }
