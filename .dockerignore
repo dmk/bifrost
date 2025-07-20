@@ -15,7 +15,6 @@ docs/
 
 # Build artifacts
 target/
-Cargo.lock
 
 # Tests
 tests/
