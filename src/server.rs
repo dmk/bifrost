@@ -1,8 +1,7 @@
 use crate::config::Config;
-use crate::core::{Backend, Strategy, Protocol, RouteTable, RouteTableBuilder};
+use crate::core::{Protocol, RouteTable, RouteTableBuilder};
 use crate::core::backend::MemcachedBackend;
-use crate::core::strategy::BlindForwardStrategy;
-use crate::core::protocols::{BlindForwardProtocol, AsciiProtocol};
+use crate::core::protocols::AsciiProtocol;
 use crate::core::route_table::ResolvedTarget;
 use tokio::net::{TcpListener, TcpStream};
 use std::sync::Arc;
@@ -95,7 +94,7 @@ impl BifrostServer {
 async fn handle_connection_with_routing(
     client_socket: TcpStream,
     route_table: Arc<RouteTable>,
-    protocol: Arc<dyn Protocol>,
+    _protocol: Arc<dyn Protocol>,
 ) -> Result<(), ServerError> {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 

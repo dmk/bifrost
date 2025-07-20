@@ -7,7 +7,7 @@ use tracing::{info, error};
 #[command(about = "Intelligent Memcached Proxy")]
 struct Args {
     /// Path to configuration file
-    #[arg(short, long, default_value = "examples/docker-test.yaml")]
+    #[arg(short, long, default_value = "examples/simple.yaml")]
     config: String,
 }
 

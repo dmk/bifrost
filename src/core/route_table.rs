@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use super::backend::Backend;
 use super::pool::{Pool, BasicPool};
-use super::strategy::{Strategy, create_strategy};
+use super::strategy::{create_strategy};
 use crate::config::Config;
 
 /// Fast immutable route table for thread-safe routing
@@ -133,7 +133,7 @@ impl RouteTableBuilder {
         }
 
         // Build routes
-        for (route_name, route_config) in &config.routes {
+        for (_route_name, route_config) in &config.routes {
             let matcher = Box::new(GlobMatcher::new(route_config.matcher.clone())) as Box<dyn Matcher>;
 
             let target = match &route_config.target {

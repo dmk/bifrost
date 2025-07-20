@@ -1,12 +1,12 @@
 use bifrost::config::Config;
-use bifrost::core::{RouteTableBuilder, Pool};
+use bifrost::core::{RouteTableBuilder};
 use bifrost::core::route_table::ResolvedTarget;
 
 #[tokio::test]
 async fn test_route_table_from_working_config() {
     // Load our working pools config
-    let config = Config::from_yaml_file("examples/working_pools.yaml").await
-        .expect("Failed to load working_pools.yaml");
+    let config = Config::from_yaml_file("examples/pools.yaml").await
+        .expect("Failed to load pools.yaml");
 
     // Build route table from config
     let route_table = RouteTableBuilder::build_from_config(&config)
@@ -50,8 +50,8 @@ async fn test_route_table_from_working_config() {
 
 #[tokio::test]
 async fn test_round_robin_strategy_in_route_table() {
-    let config = Config::from_yaml_file("examples/working_pools.yaml").await
-        .expect("Failed to load working_pools.yaml");
+    let config = Config::from_yaml_file("examples/pools.yaml").await
+        .expect("Failed to load pools.yaml");
 
     let route_table = RouteTableBuilder::build_from_config(&config)
         .expect("Failed to build route table");
