@@ -7,7 +7,7 @@ pub mod connection_pool;
 
 // Re-export core traits
 pub use backend::Backend;
-pub use strategy::{Strategy, BlindForwardStrategy, RoundRobinStrategy};
+pub use strategy::{Strategy, BlindForwardStrategy, RoundRobinStrategy, FailoverStrategy};
 pub use protocols::Protocol;
 pub use pool::{Pool, BasicPool};
 pub use route_table::{RouteTable, RouteTableBuilder, Matcher, GlobMatcher};
