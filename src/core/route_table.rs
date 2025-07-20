@@ -129,9 +129,17 @@ impl RouteTableBuilder {
                     .map_err(|e| RouteTableError::StrategyError(e.to_string()))?
             };
 
-            // Create pool
-            let pool = BasicPool::new(name.clone(), pool_backends, strategy);
-            pools.insert(name.clone(), Arc::new(pool) as Arc<dyn Pool>);
+            // Create pool - use ConcurrentPool for miss_failover strategy
+            let pool: Arc<dyn Pool> = if strategy.name() == "miss_failover" {
+                // Create ConcurrentPool for miss failover strategy
+                tracing::info!("🔄 Creating ConcurrentPool for miss failover strategy: {}", name);
+                Arc::new(super::pool::ConcurrentPool::new(name.clone(), pool_backends, strategy))
+            } else {
+                // Create regular BasicPool for other strategies
+                tracing::info!("📦 Creating BasicPool for strategy {}: {}", strategy.name(), name);
+                Arc::new(BasicPool::new(name.clone(), pool_backends, strategy))
+            };
+            pools.insert(name.clone(), pool);
         }
 
         // Build routes

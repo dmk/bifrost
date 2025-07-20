@@ -1,0 +1,50 @@
+# Failover Configuration Example
+# Demonstrates primary/backup server setup with automatic failover
+
+listeners:
+  main:
+    bind: "127.0.0.1:22122"
+
+# Backend servers - primary and backup
+backends:
+  primary_cache:
+    type: "memcached"
+    server: "127.0.0.1:11212"
+    connection_pool:
+      min_connections: 5
+      max_connections: 20
+
+  backup_cache:
+    type: "memcached"
+    server: "127.0.0.1:11213"
+    connection_pool:
+      min_connections: 2
+      max_connections: 10
+
+  backup_cache2:
+    type: "memcached"
+    server: "127.0.0.1:11214"
+
+# Pool with failover strategy
+pools:
+  # Primary/backup pool - tries primary first, then backup servers
+  failover_pool:
+    backends: ["primary_cache", "backup_cache", "backup_cache2"]
+    strategy:
+      type: "failover"
+
+routes:
+  # Critical data uses failover for high availability
+  critical:
+    matcher: "critical:*"
+    pool: "failover_pool"
+
+  # User sessions need high availability
+  sessions:
+    matcher: "session:*"
+    pool: "failover_pool"
+
+  # All other traffic uses failover as well
+  default:
+    matcher: "*"
+    pool: "failover_pool"

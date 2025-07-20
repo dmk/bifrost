@@ -1,0 +1,46 @@
+# Miss Failover Example Configuration
+# This configuration demonstrates the miss_failover strategy which sends requests
+# to all backends simultaneously and returns the first non-empty response,
+# with priority given to backends based on their order.
+
+listeners:
+  memcached:
+    bind: "127.0.0.1:22124"
+
+backends:
+  cache1:
+    type: "memcached"
+    server: "127.0.0.1:11212"  # Primary cache server
+
+  cache2:
+    type: "memcached"
+    server: "127.0.0.1:11213"  # Secondary cache server
+
+  cache3:
+    type: "memcached"
+    server: "127.0.0.1:11214"  # Tertiary cache server
+
+pools:
+  miss_failover_pool:
+    backends: ["cache1", "cache2", "cache3"]
+    strategy:
+      type: "miss_failover"
+
+routes:
+  cache_route:
+    matcher: "*"  # Match all keys
+    pool: "miss_failover_pool"
+
+# How it works:
+# 1. Client sends GET request for key "user:123"
+# 2. Proxy sends the request to ALL three cache servers simultaneously
+# 3. If cache1 returns a value first, that's returned to client
+# 4. If cache1 returns empty but cache2 has the value, cache2's response is used
+# 5. If cache1 and cache2 are empty but cache3 has the value, cache3's response is used
+# 6. Priority is given to earlier servers in the list (cache1 > cache2 > cache3)
+#
+# This provides:
+# - Fast response times (concurrent requests)
+# - Value failover (not just connection failover)
+# - Automatic fallback when primary cache has cache misses
+# - Useful for cache warming scenarios or when caches have different data sets

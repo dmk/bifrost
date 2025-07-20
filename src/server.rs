@@ -90,6 +90,80 @@ impl BifrostServer {
     }
 }
 
+/// Handle concurrent pool requests (miss failover)
+async fn handle_concurrent_pool_request(
+    mut client_reader: tokio::io::BufReader<TcpStream>,
+    pool: &Arc<dyn crate::core::Pool>,
+    key: &str,
+    first_line: &str,
+) -> Result<(), ServerError> {
+    use tokio::io::AsyncWriteExt;
+
+    debug!("Handling concurrent pool request for key: {}", key);
+
+    // For "get" requests, we only need the first line
+    let request_data = first_line.as_bytes().to_vec();
+
+    debug!("Concurrent request size: {} bytes", request_data.len());
+
+    // Send the request to the concurrent pool
+    match pool.handle_concurrent_request(key, &request_data).await {
+        Ok(response) => {
+            debug!("Concurrent pool returned response: {} bytes", response.len());
+
+            let mut client_stream = client_reader.into_inner();
+            // Send response back to client
+            client_stream.write_all(&response).await
+                .map_err(|e| ServerError::IoError(format!("Failed to write response to client: {}", e)))?;
+            client_stream.flush().await
+                .map_err(|e| ServerError::IoError(format!("Failed to flush client response: {}", e)))?;
+
+            debug!("Response sent to client successfully");
+
+            // If the successful backend was not the first one, we might need to drain
+            // the initial response from other backends that might have also responded.
+            // This is complex and for now, we assume the memcached protocol is simple
+            // enough that this isn't an immediate issue. The client will get the first
+            // valid data and ignore anything else that might follow.
+
+            Ok(())
+        }
+        Err(e) => {
+            error!("Concurrent pool request failed: {}", e);
+
+            // Send error response to client
+            let error_response = b"SERVER_ERROR concurrent request failed\r\n";
+            let mut client_stream = client_reader.into_inner();
+            client_stream.write_all(error_response).await
+                .map_err(|e| ServerError::IoError(format!("Failed to write error response: {}", e)))?;
+            client_stream.flush().await
+                .map_err(|e| ServerError::IoError(format!("Failed to flush error response: {}", e)))?;
+
+            Ok(())
+        }
+    }
+}
+
+/// Check if a command requires reading data payload
+fn is_storage_command(line: &str) -> bool {
+    let parts: Vec<&str> = line.trim().split_whitespace().collect();
+    if parts.is_empty() {
+        return false;
+    }
+
+    matches!(parts[0].to_uppercase().as_str(), "SET" | "ADD" | "REPLACE")
+}
+
+/// Extract byte count from storage command line (SET key flags exptime bytes [noreply])
+fn extract_byte_count(line: &str) -> Option<usize> {
+    let parts: Vec<&str> = line.trim().split_whitespace().collect();
+    if parts.len() >= 5 {
+        parts[4].parse().ok()
+    } else {
+        None
+    }
+}
+
 /// Handle a client connection using our route table system
 async fn handle_connection_with_routing(
     client_socket: TcpStream,
@@ -131,13 +205,21 @@ async fn handle_connection_with_routing(
         }
         ResolvedTarget::Pool(pool) => {
             debug!("Route targets pool: {} with strategy: {}", pool.name(), pool.strategy().name());
-            let selected = pool.select_backend(&key).await
-                .map_err(|e| ServerError::BackendConnectionFailed(format!("Pool selection failed: {}", e)))?;
 
-            debug!("Pool selected backend: {}", selected.name());
+            // Check if this pool supports concurrent requests (miss failover)
+            if pool.supports_concurrent_requests() {
+                debug!("Pool supports concurrent requests - handling with miss failover");
+                return handle_concurrent_pool_request(client_reader, pool, &key, &first_line).await;
+            } else {
+                // Regular pool - select one backend
+                let selected = pool.select_backend(&key).await
+                    .map_err(|e| ServerError::BackendConnectionFailed(format!("Pool selection failed: {}", e)))?;
 
-            // Use the selected backend directly (it has the connection pool configuration)
-            connect_to_backend_ref(selected, &key).await?
+                debug!("Pool selected backend: {}", selected.name());
+
+                // Use the selected backend directly (it has the connection pool configuration)
+                connect_to_backend_ref(selected, &key).await?
+            }
         }
     };
 
@@ -154,44 +236,24 @@ async fn handle_connection_with_routing(
     let buffered_data = client_reader.buffer();
     if !buffered_data.is_empty() {
         backend_socket.write_all(buffered_data).await
-            .map_err(|e| ServerError::IoError(format!("Failed to write client buffer to backend: {}", e)))?;
+            .map_err(|e| ServerError::IoError(format!("Failed to forward initial buffer: {}", e)))?;
         backend_socket.flush().await
-            .map_err(|e| ServerError::IoError(format!("Failed to flush backend after writing client buffer: {}", e)))?;
-        debug!("Forwarded {} bytes of buffered data from client to backend", buffered_data.len());
+            .map_err(|e| ServerError::IoError(format!("Failed to flush initial buffer: {}", e)))?;
+        debug!("Forwarded {} bytes from initial client buffer", buffered_data.len());
     }
 
-    // Get the original client socket back from the buffered reader
+    // Now, proxy data bidirectionally
     let mut client_stream = client_reader.into_inner();
-
-    // Now use bidirectional proxy to forward everything else
-    if let Err(e) = proxy_bidirectional(&mut client_stream, &mut backend_socket).await {
-        debug!("Bidirectional proxy ended: {}", e);
-    }
-
-    debug!("Connection closed");
-    Ok(())
+    proxy_bidirectional(&mut client_stream, &mut backend_socket).await
+        .map_err(|e| ServerError::IoError(format!("Proxy error: {}", e)))
 }
 
-/// Connect to a backend using connection pooling if available
+/// Helper function to connect to a backend by its Arc reference
 async fn connect_to_backend(backend: &Arc<dyn crate::core::Backend>, key: &str) -> Result<TcpStream, ServerError> {
-    if backend.uses_connection_pool() {
-        debug!("🏊 Backend {} has connection pooling configured", backend.name());
-        let stream = backend.get_pooled_stream().await
-            .map_err(|e| ServerError::BackendConnectionFailed(format!("Connection failed: {}", e)))?;
-
-        info!("🎯 Key '{}' routed to backend: {} ({}) [POOL-READY]", key, backend.name(), backend.server());
-        Ok(stream)
-    } else {
-        debug!("🔗 Using direct connection for backend: {}", backend.name());
-        let stream = backend.connect().await
-            .map_err(|e| ServerError::BackendConnectionFailed(e.to_string()))?;
-
-        info!("🎯 Key '{}' routed to backend: {} ({}) [DIRECT]", key, backend.name(), backend.server());
-        Ok(stream)
-    }
+    connect_to_backend_ref(backend.as_ref(), key).await
 }
 
-/// Connect to a backend reference using connection pooling if available
+/// Connect to a backend using a direct reference (trait object)
 async fn connect_to_backend_ref(backend: &dyn crate::core::Backend, key: &str) -> Result<TcpStream, ServerError> {
     if backend.uses_connection_pool() {
         debug!("🏊 Backend {} has connection pooling configured", backend.name());

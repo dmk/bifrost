@@ -1,0 +1,78 @@
+# Connection Pooling Example Configuration
+# Demonstrates persistent connection pooling for improved performance
+
+listeners:
+  main:
+    bind: "127.0.0.1:22122"
+
+# Individual backend servers with connection pool configuration
+backends:
+  # Backend with custom connection pool settings
+  cache1:
+    type: "memcached"
+    server: "127.0.0.1:11212"
+    connection_pool:
+      min_connections: 5      # Always keep 3 connections warm
+      max_connections: 15     # Allow up to 15 concurrent connections
+      connection_timeout_secs: 60   # 10 second connection timeout
+      idle_timeout_secs: 600        # Close idle connections after 10 minutes
+      max_lifetime_secs: 3600       # Refresh connections every hour
+
+  # Backend with minimal connection pool settings
+  cache2:
+    type: "memcached"
+    server: "127.0.0.1:11213"
+    connection_pool:
+      min_connections: 3
+      max_connections: 5
+
+  # Backend without explicit pool config (uses defaults)
+  cache3:
+    type: "memcached"
+    server: "127.0.0.1:11214"
+    # Uses default pool settings:
+    # - min_connections: 2
+    # - max_connections: 10
+    # - connection_timeout_secs: 5
+    # - idle_timeout_secs: 300 (5 minutes)
+    # - max_lifetime_secs: 3600 (1 hour)
+
+# Backend pools for load balancing with pooled connections
+pools:
+  # High-performance pool with aggressive connection settings
+  high_performance_pool:
+    backends: ["cache1", "cache2"]
+    strategy:
+      type: "round_robin"
+
+  # Simple pool for less critical data
+  simple_pool:
+    backends: ["cache3"]
+    strategy:
+      type: "blind_forward"
+
+routes:
+  # Route critical data to high-performance pool
+  critical:
+    matcher: "critical:*"
+    pool: "high_performance_pool"
+
+  # Route user data to high-performance pool
+  users:
+    matcher: "user:*"
+    pool: "high_performance_pool"
+
+  # Route cache data to simple pool
+  cache:
+    matcher: "cache:*"
+    pool: "simple_pool"
+
+  # Direct route to specific backend
+  direct:
+    matcher: "direct:*"
+    backend: "cache1"
+
+  # Default route
+  default:
+    matcher: "*"
+    pool: "high_performance_pool"

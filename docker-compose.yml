@@ -3,7 +3,7 @@ version: '3.8'
 services:
   memcached1:
     image: memcached:1.6-alpine
-    platform: linux/arm64
+    platform: linux/amd64
     ports:
       - "11211:11211"  # Expose memcached on port 11212
     command: ["-v"]  # Verbose mode to see requests
@@ -11,7 +11,7 @@ services:
 
   memcached2:
     image: memcached:1.6-alpine
-    platform: linux/arm64
+    platform: linux/amd64
     ports:
       - "11212:11211"
     command: ["-v"]
@@ -19,7 +19,7 @@ services:
 
   memcached3:
     image: memcached:1.6-alpine
-    platform: linux/arm64
+    platform: linux/amd64
     ports:
       - "11213:11211"
     command: ["-v"]
@@ -27,7 +27,7 @@ services:
 
   memcached4:
     image: memcached:1.6-alpine
-    platform: linux/arm64
+    platform: linux/amd64
     ports:
       - "11214:11211"
     command: ["-v"]
@@ -35,8 +35,21 @@ services:
 
   memcached5:
     image: memcached:1.6-alpine
-    platform: linux/arm64
+    platform: linux/amd64
     ports:
       - "11215:11211"
     command: ["-v"]
     container_name: bifrost-memcached5
+
+  mcrouter:
+    image: studiosol/mcrouter
+    platform: linux/amd64
+    ports:
+      - "22123:11211"  # Expose mcrouter on port 22123
+    volumes:
+      - ./mcrouter-config.json:/etc/mcrouter/config.json:ro
+    command: ["mcrouter", "--config-file=/etc/mcrouter/config.json", "--port=11211"]
+    container_name: bifrost-mcrouter
+    depends_on:
+      - memcached1
+      - memcached2

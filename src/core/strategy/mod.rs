@@ -5,10 +5,12 @@ use crate::core::backend::Backend;
 pub mod blind_forward;
 pub mod round_robin;
 pub mod failover;
+pub mod miss_failover;
 
 pub use blind_forward::BlindForwardStrategy;
 pub use round_robin::RoundRobinStrategy;
 pub use failover::FailoverStrategy;
+pub use miss_failover::MissFailoverStrategy;
 
 /// Core trait for routing strategies
 #[async_trait]
@@ -26,6 +28,7 @@ pub fn create_strategy(strategy_type: &str) -> Result<Box<dyn Strategy>, Strateg
         "blind_forward" => Ok(Box::new(BlindForwardStrategy::new())),
         "round_robin" => Ok(Box::new(RoundRobinStrategy::new())),
         "failover" => Ok(Box::new(FailoverStrategy::new())),
+        "miss_failover" => Ok(Box::new(MissFailoverStrategy::new())),
         _ => Err(StrategyError::UnknownStrategy(strategy_type.to_string())),
     }
 }
@@ -51,6 +54,9 @@ mod tests {
 
         let failover = create_strategy("failover").unwrap();
         assert_eq!(failover.name(), "failover");
+
+        let miss_failover = create_strategy("miss_failover").unwrap();
+        assert_eq!(miss_failover.name(), "miss_failover");
 
         // Test unknown strategy
         let result = create_strategy("unknown_strategy");

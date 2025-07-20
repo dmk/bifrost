@@ -1,0 +1,16 @@
+{
+  "pools": {
+    "A": {
+      "servers": [
+        "memcached2:11211",
+        "memcached3:11211"
+      ]
+    },
+    "B": {
+      "servers": [
+        "memcached4:11211"
+      ]
+    }
+  },
+  "route": "PoolRoute|A"
+}

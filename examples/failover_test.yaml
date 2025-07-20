@@ -1,0 +1,37 @@
+# Manual Failover Test Configuration
+# Test with 5 memcached servers - each with different "test" values
+
+listeners:
+  main:
+    bind: "127.0.0.1:22122"
+
+# 5 backend memcached servers
+backends:
+  server1:
+    type: "memcached"
+    server: "127.0.0.1:11211"  # test=test1
+  server2:
+    type: "memcached"
+    server: "127.0.0.1:11212"  # test=test2
+  server3:
+    type: "memcached"
+    server: "127.0.0.1:11213"  # test=test3
+  server4:
+    type: "memcached"
+    server: "127.0.0.1:11214"  # test=test4
+  server5:
+    type: "memcached"
+    server: "127.0.0.1:11215"  # test=test5
+
+# Failover pool - tries servers in order
+pools:
+  failover_test_pool:
+    backends: ["server1", "server2", "server3", "server4", "server5"]
+    strategy:
+      type: "failover"
+
+routes:
+  # All traffic goes to failover pool
+  default:
+    matcher: "*"
+    pool: "failover_test_pool"
