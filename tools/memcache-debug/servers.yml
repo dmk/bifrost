@@ -1,0 +1,23 @@
+# Example configuration for running multiple debug servers.
+#
+# To use this, run the server with the --config flag:
+#
+#   ./debug_server.rb --config servers.yml
+#
+
+servers:
+  - name: "memcached-server-1"
+    port: 11211
+    verbose: true
+  - name: "memcached-server-2"
+    port: 11212
+    verbose: true
+  - name: "memcached-server-3"
+    port: 11213
+    verbose: true
+  - name: "memcached-server-4"
+    port: 11214
+    verbose: true
+  - name: "memcached-server-5"
+    port: 11215
+    verbose: true
