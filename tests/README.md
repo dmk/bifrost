@@ -2,6 +2,17 @@
 
 This directory contains tests for the Bifrost proxy.
 
+## Test Categories
+
+### Unit Tests
+Individual component tests in Rust files (e.g., `connection_pool_test.rs`, `route_table_test.rs`)
+
+### Integration Tests
+End-to-end tests in the `e2e/` directory
+
+### Performance Tests
+Benchmark suite in the `benchmark/` directory
+
 ## End-to-End Tests
 
 The `e2e/` directory contains end-to-end tests that test the complete proxy functionality.
@@ -45,7 +56,32 @@ The comprehensive test suite covers:
 - ✅ **Multiple Operations**: Sequential commands in single connection
 - ✅ **Proxy Forwarding**: Bidirectional client ↔ backend communication
 
-### Adding New Tests
+## Performance Benchmarks
+
+The `benchmark/` directory contains a comprehensive benchmark suite that compares Bifrost performance against MCRouter.
+
+### Quick Start
+
+```bash
+cd tests/benchmark
+./run_benchmark_direct.sh
+```
+
+### What's Tested
+
+- **6 different workload scenarios** (light, medium, high load)
+- **Throughput comparison** (ops/sec)
+- **Latency analysis** (P50, P95, P99 percentiles)
+- **Connection pooling performance**
+- **Stress testing**
+
+### Results
+
+Benchmark results are stored in `tests/benchmark/benchmark_results/` with detailed analysis and comparison reports.
+
+See `tests/benchmark/README.md` for complete documentation.
+
+## Adding New Tests
 
 To add new tests to the main test suite:
 

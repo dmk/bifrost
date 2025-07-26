@@ -1,0 +1,71 @@
+# Bifrost Benchmark Configuration
+# 5 memcached servers with round robin strategy and connection pooling
+
+listeners:
+  main:
+    bind: "0.0.0.0:22122"
+
+# Individual backend servers (5 memcached instances) with connection pooling
+backends:
+  cache1:
+    type: "memcached"
+    server: "memcached1:11211"
+    connection_pool:
+      min_connections: 5      # Keep 5 connections warm
+      max_connections: 20     # Allow up to 20 concurrent connections
+      connection_timeout_secs: 5
+      idle_timeout_secs: 300  # 5 minutes
+      max_lifetime_secs: 3600 # 1 hour
+
+  cache2:
+    type: "memcached"
+    server: "memcached2:11211"
+    connection_pool:
+      min_connections: 5
+      max_connections: 20
+      connection_timeout_secs: 5
+      idle_timeout_secs: 300
+      max_lifetime_secs: 3600
+
+  cache3:
+    type: "memcached"
+    server: "memcached3:11211"
+    connection_pool:
+      min_connections: 5
+      max_connections: 20
+      connection_timeout_secs: 5
+      idle_timeout_secs: 300
+      max_lifetime_secs: 3600
+
+  cache4:
+    type: "memcached"
+    server: "memcached4:11211"
+    connection_pool:
+      min_connections: 5
+      max_connections: 20
+      connection_timeout_secs: 5
+      idle_timeout_secs: 300
+      max_lifetime_secs: 3600
+
+  cache5:
+    type: "memcached"
+    server: "memcached5:11211"
+    connection_pool:
+      min_connections: 5
+      max_connections: 20
+      connection_timeout_secs: 5
+      idle_timeout_secs: 300
+      max_lifetime_secs: 3600
+
+# Round robin pool with all 5 backends
+pools:
+  benchmark_pool:
+    backends: ["cache1", "cache2", "cache3", "cache4", "cache5"]
+    strategy:
+      type: "round_robin"
+
+routes:
+  # Default route - all traffic goes to round robin pool
+  default:
+    matcher: "*"
+    pool: "benchmark_pool"

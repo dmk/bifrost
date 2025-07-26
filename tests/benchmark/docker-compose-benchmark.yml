@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  # 5 Memcached servers for benchmarking
+  memcached1:
+    image: memcached:1.6-alpine
+    platform: linux/amd64
+    ports:
+      - "11211:11211"
+    command: ["-v", "-m", "128"]  # Verbose mode, 128MB memory
+    container_name: benchmark-memcached1
+
+  memcached2:
+    image: memcached:1.6-alpine
+    platform: linux/amd64
+    ports:
+      - "11212:11211"
+    command: ["-v", "-m", "128"]
+    container_name: benchmark-memcached2
+
+  memcached3:
+    image: memcached:1.6-alpine
+    platform: linux/amd64
+    ports:
+      - "11213:11211"
+    command: ["-v", "-m", "128"]
+    container_name: benchmark-memcached3
+
+  memcached4:
+    image: memcached:1.6-alpine
+    platform: linux/amd64
+    ports:
+      - "11214:11211"
+    command: ["-v", "-m", "128"]
+    container_name: benchmark-memcached4
+
+  memcached5:
+    image: memcached:1.6-alpine
+    platform: linux/amd64
+    ports:
+      - "11215:11211"
+    command: ["-v", "-m", "128"]
+    container_name: benchmark-memcached5
+
+  # MCRouter for comparison
+  mcrouter:
+    image: studiosol/mcrouter
+    platform: linux/amd64
+    ports:
+      - "22123:11211"  # MCRouter on port 22123
+    volumes:
+      - ./mcrouter-benchmark.json:/etc/mcrouter/config.json:ro
+    command: ["mcrouter", "--config-file=/etc/mcrouter/config.json", "--port=11211", "--listen-address=0.0.0.0"]
+    container_name: benchmark-mcrouter
+    depends_on:
+      - memcached1
+      - memcached2
+      - memcached3
+      - memcached4
+      - memcached5
+
+  # Bifrost proxy
+  bifrost:
+    build: .
+    platform: linux/amd64
+    ports:
+      - "22122:22122"  # Bifrost on port 22122
+    volumes:
+      - ./benchmark_config.yaml:/app/config.yaml:ro
+    command: ["--config", "/app/config.yaml"]
+    container_name: benchmark-bifrost
+    depends_on:
+      - memcached1
+      - memcached2
+      - memcached3
+      - memcached4
+      - memcached5
