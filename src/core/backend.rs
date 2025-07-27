@@ -1,7 +1,9 @@
 use crate::config::BackendConfig;
 use crate::core::connection_pool::{ConnectionPoolBuilder, MemcachedPool};
+use crate::core::metrics::{AtomicBackendMetrics, BackendMetrics};
 use async_trait::async_trait;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::net::TcpStream;
 
 /// Core trait for cache backends (memcached servers)
@@ -21,6 +23,12 @@ pub trait Backend: Send + Sync {
 
     /// Get a pooled stream - validates pool health and returns a connection
     async fn get_pooled_stream(&self) -> Result<TcpStream, BackendError>;
+
+    /// Get metrics for this backend
+    fn metrics(&self) -> Arc<AtomicBackendMetrics>;
+
+    // Note: execute_with_metrics moved to MemcachedBackend implementation
+    // to avoid making the trait non-object-safe
 }
 
 /// Optimize TCP socket for low latency
@@ -45,15 +53,18 @@ pub struct MemcachedBackend {
     pub name: String,
     pub server: String,
     pub connection_pool: Option<Arc<MemcachedPool>>,
+    pub metrics: Arc<AtomicBackendMetrics>,
 }
 
 impl MemcachedBackend {
     /// Create a new backend without connection pooling (legacy)
     pub fn new(name: String, server: String) -> Self {
+        let metrics = Arc::new(AtomicBackendMetrics::new(name.clone()));
         Self {
             name,
             server,
             connection_pool: None,
+            metrics,
         }
     }
 
@@ -69,19 +80,24 @@ impl MemcachedBackend {
             None
         };
 
+        let metrics = Arc::new(AtomicBackendMetrics::new(name.clone()));
+
         Ok(Self {
             name,
             server: config.server.clone(),
             connection_pool,
+            metrics,
         })
     }
 
     /// Create a backend with a custom connection pool
     pub fn with_connection_pool(name: String, server: String, pool: Arc<MemcachedPool>) -> Self {
+        let metrics = Arc::new(AtomicBackendMetrics::new(name.clone()));
         Self {
             name,
             server,
             connection_pool: Some(pool),
+            metrics,
         }
     }
 }
@@ -89,15 +105,35 @@ impl MemcachedBackend {
 #[async_trait]
 impl Backend for MemcachedBackend {
     async fn connect(&self) -> Result<TcpStream, BackendError> {
-        // Direct connection (fast, no timeout needed for real backends)
-        let stream = TcpStream::connect(&self.server)
-            .await
-            .map_err(|e| BackendError::ConnectionFailed(e.to_string()))?;
+        use tokio::time::{timeout, Duration};
 
-        // Apply socket optimizations (best-effort)
-        optimize_socket_for_latency(&stream);
+        self.metrics.record_connection_attempt();
+        let start = Instant::now();
 
-        Ok(stream)
+        // Add timeout for direct connection (1 second max)
+        let connect_timeout = Duration::from_millis(1000);
+
+        let result = timeout(connect_timeout, TcpStream::connect(&self.server)).await;
+
+        match result {
+            Ok(Ok(stream)) => {
+                let latency = start.elapsed();
+                self.metrics.record_connection_success(latency);
+
+                // Apply socket optimizations (best-effort)
+                optimize_socket_for_latency(&stream);
+
+                Ok(stream)
+            }
+            Ok(Err(e)) => {
+                self.metrics.record_connection_failure();
+                Err(BackendError::ConnectionFailed(e.to_string()))
+            }
+            Err(_) => {
+                self.metrics.record_connection_failure();
+                Err(BackendError::ConnectionFailed(format!("Connection to {} timed out after 1s", self.server)))
+            }
+        }
     }
 
     async fn get_pooled_stream(&self) -> Result<TcpStream, BackendError> {
@@ -132,6 +168,32 @@ impl Backend for MemcachedBackend {
 
     fn uses_connection_pool(&self) -> bool {
         self.connection_pool.is_some()
+    }
+
+    fn metrics(&self) -> Arc<AtomicBackendMetrics> {
+        Arc::clone(&self.metrics)
+    }
+}
+
+impl MemcachedBackend {
+    /// Execute an operation with latency measurement (helper method)
+    pub async fn execute_with_metrics<T, E>(
+        &self,
+        operation: impl std::future::Future<Output = Result<T, E>> + Send,
+    ) -> Result<T, E>
+    where
+        E: From<BackendError>,
+    {
+        let start = Instant::now();
+        let result = operation.await;
+        let latency = start.elapsed();
+
+        match &result {
+            Ok(_) => self.metrics.record_success(latency),
+            Err(_) => self.metrics.record_failure(Some(latency)),
+        }
+
+        result
     }
 }
 

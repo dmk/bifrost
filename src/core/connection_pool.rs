@@ -33,12 +33,13 @@ impl bb8::ManageConnection for MemcachedConnectionManager {
     }
 
     async fn is_valid(&self, conn: &mut Self::Connection) -> Result<(), Self::Error> {
-        // For TCP connections, we can check if the socket is still readable/writable
-        // This is a simple check - in a real implementation you might want to send a ping
-        if conn.readable().await.is_ok() {
-            Ok(())
-        } else {
-            Err(ConnectionError::ConnectionInvalid)
+        // Use readable check with timeout to avoid blocking while still validating properly
+        match tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            conn.readable()
+        ).await {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(_)) | Err(_) => Err(ConnectionError::ConnectionInvalid),
         }
     }
 

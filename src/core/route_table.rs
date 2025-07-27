@@ -216,6 +216,10 @@ impl Backend for BackendWrapper {
     ) -> Result<tokio::net::TcpStream, crate::core::backend::BackendError> {
         self.backend.get_pooled_stream().await
     }
+
+    fn metrics(&self) -> std::sync::Arc<crate::core::metrics::AtomicBackendMetrics> {
+        self.backend.metrics()
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

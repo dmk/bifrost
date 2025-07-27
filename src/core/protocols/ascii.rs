@@ -192,7 +192,7 @@ impl AsciiCommand {
                 let noreply = parts.len() > 1 && parts[parts.len() - 1] == "noreply";
                 Ok(AsciiCommand::FlushAll { exptime, noreply })
             }
-            "STATS" => {
+            "stats" => {
                 let args = if parts.len() > 1 {
                     Some(parts[1..].join(" "))
                 } else {

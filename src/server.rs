@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::core::metrics::BackendMetrics;
 use crate::core::protocols::AsciiProtocol;
 use crate::core::route_table::ResolvedTarget;
 use crate::core::{Protocol, RouteTable, RouteTableBuilder};
@@ -163,6 +164,187 @@ async fn handle_concurrent_pool_request(
     }
 }
 
+/// Handle STATS command locally and return proxy statistics
+async fn handle_stats_command(
+    client_reader: tokio::io::BufReader<TcpStream>,
+    route_table: &Arc<RouteTable>,
+    stats_line: &str,
+) -> Result<(), ServerError> {
+    use tokio::io::AsyncWriteExt;
+    use std::time::SystemTime;
+
+    let mut client_stream = client_reader.into_inner();
+
+    // Parse the STATS command to see if specific stats are requested
+    let parts: Vec<&str> = stats_line.trim().split_whitespace().collect();
+    let stats_type = if parts.len() > 1 { Some(parts[1]) } else { None };
+
+    let mut response = String::new();
+
+    match stats_type {
+        Some("backends") => {
+            // Show backend-specific statistics
+            response.push_str("STAT bifrost_version 1.0.0\r\n");
+            response.push_str(&format!("STAT total_routes {}\r\n", route_table.routes().len()));
+
+            // Collect metrics from all backends across all routes
+            let mut backend_count = 0;
+            for route in route_table.routes() {
+                match &route.target {
+                    crate::core::route_table::ResolvedTarget::Backend(backend) => {
+                                                backend_count += 1;
+                        let metrics = backend.metrics();
+                        let snapshot = metrics.get_snapshot().await;
+                        let backend_name = &snapshot.backend_name;
+
+                        response.push_str(&format!("STAT {}_server {}\r\n", backend_name, backend.server()));
+                        response.push_str(&format!("STAT {}_total_requests {}\r\n", backend_name, snapshot.total_requests));
+                        response.push_str(&format!("STAT {}_successful_requests {}\r\n", backend_name, snapshot.successful_requests));
+                        response.push_str(&format!("STAT {}_failed_requests {}\r\n", backend_name, snapshot.failed_requests));
+                        response.push_str(&format!("STAT {}_timeouts {}\r\n", backend_name, snapshot.timeouts));
+                        response.push_str(&format!("STAT {}_success_rate {:.2}\r\n", backend_name, snapshot.success_rate));
+                        response.push_str(&format!("STAT {}_avg_latency_ms {:.2}\r\n", backend_name, snapshot.average_latency_ms));
+                        response.push_str(&format!("STAT {}_p95_latency_ms {:.2}\r\n", backend_name, snapshot.p95_latency_ms));
+                        response.push_str(&format!("STAT {}_p99_latency_ms {:.2}\r\n", backend_name, snapshot.p99_latency_ms));
+                        response.push_str(&format!("STAT {}_current_connections {}\r\n", backend_name, snapshot.current_connections));
+                        response.push_str(&format!("STAT {}_connection_attempts {}\r\n", backend_name, snapshot.connection_attempts));
+                        response.push_str(&format!("STAT {}_connection_successes {}\r\n", backend_name, snapshot.connection_successes));
+                        response.push_str(&format!("STAT {}_connection_failures {}\r\n", backend_name, snapshot.connection_failures));
+                    }
+                    crate::core::route_table::ResolvedTarget::Pool(pool) => {
+                        for (_pool_backend_idx, backend) in pool.backends().iter().enumerate() {
+                                                        backend_count += 1;
+                            let metrics = backend.metrics();
+                            let snapshot = metrics.get_snapshot().await;
+                            let backend_name = &snapshot.backend_name;
+
+                            response.push_str(&format!("STAT {}_{}_server {}\r\n", pool.name(), backend_name, backend.server()));
+                            response.push_str(&format!("STAT {}_{}_total_requests {}\r\n", pool.name(), backend_name, snapshot.total_requests));
+                            response.push_str(&format!("STAT {}_{}_successful_requests {}\r\n", pool.name(), backend_name, snapshot.successful_requests));
+                            response.push_str(&format!("STAT {}_{}_failed_requests {}\r\n", pool.name(), backend_name, snapshot.failed_requests));
+                            response.push_str(&format!("STAT {}_{}_timeouts {}\r\n", pool.name(), backend_name, snapshot.timeouts));
+                            response.push_str(&format!("STAT {}_{}_success_rate {:.2}\r\n", pool.name(), backend_name, snapshot.success_rate));
+                            response.push_str(&format!("STAT {}_{}_avg_latency_ms {:.2}\r\n", pool.name(), backend_name, snapshot.average_latency_ms));
+                            response.push_str(&format!("STAT {}_{}_p95_latency_ms {:.2}\r\n", pool.name(), backend_name, snapshot.p95_latency_ms));
+                            response.push_str(&format!("STAT {}_{}_p99_latency_ms {:.2}\r\n", pool.name(), backend_name, snapshot.p99_latency_ms));
+                            response.push_str(&format!("STAT {}_{}_current_connections {}\r\n", pool.name(), backend_name, snapshot.current_connections));
+                        }
+
+                        // Pool-level stats
+                        response.push_str(&format!("STAT pool_{}_strategy {}\r\n", pool.name(), pool.strategy().name()));
+                        response.push_str(&format!("STAT pool_{}_backend_count {}\r\n", pool.name(), pool.backends().len()));
+                        response.push_str(&format!("STAT pool_{}_supports_concurrent {}\r\n", pool.name(), pool.supports_concurrent_requests()));
+                    }
+                }
+            }
+
+            response.push_str(&format!("STAT total_backends {}\r\n", backend_count));
+        }
+        Some("pools") => {
+            // Show pool-specific statistics
+            response.push_str("STAT bifrost_version 1.0.0\r\n");
+            let mut pool_count = 0;
+
+            for route in route_table.routes() {
+                if let crate::core::route_table::ResolvedTarget::Pool(pool) = &route.target {
+                    pool_count += 1;
+                    let pool_name = pool.name();
+                    response.push_str(&format!("STAT {}_strategy {}\r\n", pool_name, pool.strategy().name()));
+                    response.push_str(&format!("STAT {}_backend_count {}\r\n", pool_name, pool.backends().len()));
+                    response.push_str(&format!("STAT {}_supports_concurrent {}\r\n", pool_name, pool.supports_concurrent_requests()));
+                    response.push_str(&format!("STAT {}_healthy {}\r\n", pool_name, pool.has_healthy_backends()));
+                }
+            }
+
+            response.push_str(&format!("STAT total_pools {}\r\n", pool_count));
+        }
+        None => {
+            // Default stats - overview
+            let _uptime = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+
+
+
+            response.push_str("STAT pid 12345\r\n");
+            response.push_str("STAT uptime 3600\r\n");
+            response.push_str("STAT version bifrost-1.0.0\r\n");
+            response.push_str("STAT bifrost_type intelligent_proxy\r\n");
+            response.push_str(&format!("STAT routes_configured {}\r\n", route_table.routes().len()));
+
+            // Count backends and pools
+            let mut backend_count = 0;
+            let mut pool_count = 0;
+            let mut total_requests = 0u64;
+            let mut total_successes = 0u64;
+            let mut total_failures = 0u64;
+
+            for route in route_table.routes() {
+                match &route.target {
+                    crate::core::route_table::ResolvedTarget::Backend(backend) => {
+                        backend_count += 1;
+                        let metrics = backend.metrics();
+                        let snapshot = metrics.get_snapshot().await;
+                        total_requests += snapshot.total_requests;
+                        total_successes += snapshot.successful_requests;
+                        total_failures += snapshot.failed_requests;
+                    }
+                    crate::core::route_table::ResolvedTarget::Pool(pool) => {
+                        pool_count += 1;
+                        for backend in pool.backends() {
+                            backend_count += 1;
+                            let metrics = backend.metrics();
+                            let snapshot = metrics.get_snapshot().await;
+                            total_requests += snapshot.total_requests;
+                            total_successes += snapshot.successful_requests;
+                            total_failures += snapshot.failed_requests;
+                        }
+                    }
+                }
+            }
+
+            response.push_str(&format!("STAT total_backends {}\r\n", backend_count));
+            response.push_str(&format!("STAT total_pools {}\r\n", pool_count));
+            response.push_str(&format!("STAT proxy_total_requests {}\r\n", total_requests));
+            response.push_str(&format!("STAT proxy_successful_requests {}\r\n", total_successes));
+            response.push_str(&format!("STAT proxy_failed_requests {}\r\n", total_failures));
+
+            let success_rate = if total_requests > 0 {
+                (total_successes as f64 / total_requests as f64) * 100.0
+            } else {
+                0.0
+            };
+            response.push_str(&format!("STAT proxy_success_rate {:.2}\r\n", success_rate));
+        }
+        Some(_) => {
+            // Unknown stats type - return error
+            response.push_str("CLIENT_ERROR Unknown stats type\r\n");
+            client_stream.write_all(response.as_bytes()).await.map_err(|e| {
+                ServerError::IoError(format!("Failed to write stats response: {}", e))
+            })?;
+            return Ok(());
+        }
+    }
+
+    // Always end with END
+    response.push_str("END\r\n");
+
+
+
+    // Send response to client
+    client_stream.write_all(response.as_bytes()).await.map_err(|e| {
+        ServerError::IoError(format!("Failed to write stats response: {}", e))
+    })?;
+
+    client_stream.flush().await.map_err(|e| {
+        ServerError::IoError(format!("Failed to flush stats response: {}", e))
+    })?;
+
+    debug!("STATS response sent successfully, {} bytes", response.len());
+    Ok(())
+}
+
 /// Handle a client connection using our route table system
 async fn handle_connection_with_routing(
     client_socket: TcpStream,
@@ -185,6 +367,13 @@ async fn handle_connection_with_routing(
     }
 
     debug!("First request line: {}", first_line.trim());
+
+    // Check if this is a stats command - handle locally (case sensitive like real memcached)
+    let trimmed_line = first_line.trim();
+    if trimmed_line.starts_with("stats") || trimmed_line == "stats" {
+        debug!("Handling stats command locally: {}", trimmed_line);
+        return handle_stats_command(client_reader, &route_table, &first_line).await;
+    }
 
     // Extract key from the request (simple parsing)
     let key = extract_key_from_request(&first_line).unwrap_or("default".to_string());
