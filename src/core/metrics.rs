@@ -24,7 +24,7 @@ pub trait BackendMetrics: Send + Sync {
     fn record_connection_failure(&self);
 
     /// Get current metrics snapshot
-    async fn get_snapshot(&self) -> MetricsSnapshot;
+    fn get_snapshot(&self) -> impl std::future::Future<Output = MetricsSnapshot> + Send;
 
     /// Reset all metrics (useful for testing)
     fn reset(&self);
@@ -166,7 +166,8 @@ impl BackendMetrics for AtomicBackendMetrics {
         self.connection_failures.fetch_add(1, Ordering::Relaxed);
     }
 
-    async fn get_snapshot(&self) -> MetricsSnapshot {
+    fn get_snapshot(&self) -> impl std::future::Future<Output = MetricsSnapshot> + Send {
+        async move {
         let total = self.total_requests.load(Ordering::Relaxed);
         let successes = self.successful_requests.load(Ordering::Relaxed);
 
@@ -205,6 +206,7 @@ impl BackendMetrics for AtomicBackendMetrics {
             current_connections: self.current_connections.load(Ordering::Relaxed),
             success_rate,
             last_request_time,
+        }
         }
     }
 
