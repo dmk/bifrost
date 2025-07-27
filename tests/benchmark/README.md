@@ -23,7 +23,7 @@ tests/benchmark/
 1. **Run benchmarks:**
    ```bash
    cd tests/benchmark
-   ./run_benchmark_direct.sh
+   ./run_benchmark.sh
    ```
 
 2. **View results:**

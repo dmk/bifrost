@@ -61,7 +61,7 @@ services:
 
   # Bifrost proxy
   bifrost:
-    build: .
+    build: ../..  # Build from the root directory where Dockerfile is located
     platform: linux/amd64
     ports:
       - "22122:22122"  # Bifrost on port 22122

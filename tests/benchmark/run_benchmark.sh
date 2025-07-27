@@ -8,7 +8,6 @@ set -e
 echo "🚀 Bifrost vs MCRouter Benchmark"
 echo "======================================="
 echo
-set -e
 
 # Check if Docker is running
 if ! docker info > /dev/null 2>&1; then
@@ -25,19 +24,10 @@ fi
 echo "✅ Docker is running"
 echo
 
-# Build bifrost if needed
-echo "📦 Building Bifrost..."
-if ! docker build -t bifrost:benchmark . > /dev/null 2>&1; then
-    echo "❌ Failed to build Bifrost. Please check your Docker setup."
-    exit 1
-fi
-echo "✅ Bifrost built successfully"
-echo
-
-# Start all services
+# Start all services (docker-compose will build Bifrost if needed)
 echo "🐳 Starting benchmark infrastructure..."
 docker-compose -f docker-compose-benchmark.yml down > /dev/null 2>&1 || true
-docker-compose -f docker-compose-benchmark.yml up -d
+docker-compose -f docker-compose-benchmark.yml up -d --build
 
 echo "⏳ Waiting for all services to be ready..."
 sleep 30
@@ -71,7 +61,7 @@ echo "✅ All services are ready"
 echo
 
 # Configuration
-NETWORK="bifrost_default"
+NETWORK="benchmark_default"
 RESULTS_DIR="./benchmark_results"
 
 # Create results directory
