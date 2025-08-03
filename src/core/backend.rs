@@ -69,7 +69,6 @@ impl MemcachedBackend {
                 .connection_timeout(Duration::from_secs(pool_config.connection_timeout_secs))
                 .idle_timeout(Some(Duration::from_secs(pool_config.idle_timeout_secs)))
                 .max_lifetime(Some(Duration::from_secs(pool_config.max_lifetime_secs)))
-                // Removed test_on_check_out - can cause connection drops under high load
                 .build(manager)
                 .await
                 .map_err(|e| BackendError::PoolCreationFailed(e.to_string()))?;
