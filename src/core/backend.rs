@@ -1,9 +1,10 @@
 use crate::config::BackendConfig;
-use crate::core::connection_pool::{ConnectionPoolBuilder, MemcachedPool};
+use crate::core::connection_pool::{MemcachedConnectionManager, MemcachedPool};
 use crate::core::metrics::{AtomicBackendMetrics, BackendMetrics};
 use async_trait::async_trait;
+use bb8::Pool;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
 
 /// Core trait for cache backends (memcached servers)
@@ -22,42 +23,31 @@ pub trait Backend: Send + Sync {
     fn uses_connection_pool(&self) -> bool;
 
     /// Get a pooled stream - validates pool health and returns a connection
-    async fn get_pooled_stream(&self) -> Result<TcpStream, BackendError>;
+    async fn get_pooled_stream(&self) -> Result<bb8::PooledConnection<'_, MemcachedConnectionManager>, BackendError>;
 
     /// Get metrics for this backend
     fn metrics(&self) -> Arc<AtomicBackendMetrics>;
-
-    // Note: execute_with_metrics moved to MemcachedBackend implementation
-    // to avoid making the trait non-object-safe
 }
 
 /// Optimize TCP socket for low latency
-fn optimize_socket_for_latency(stream: &TcpStream) {
-    // Disable Nagle's algorithm for lower latency (available on tokio TcpStream)
+pub fn optimize_socket_for_latency(stream: &TcpStream) {
     let _ = stream.set_nodelay(true);
-
-    // Additional socket optimizations using socket2
     let socket_ref = socket2::SockRef::try_from(stream).unwrap();
-    // Set socket to reuse address for faster reconnection
     let _ = socket_ref.set_reuse_address(true);
-
-    // Optimize send/receive buffer sizes for cache workloads
-    // 32KB buffers balance latency vs throughput for cache operations
     let _ = socket_ref.set_send_buffer_size(32768);
     let _ = socket_ref.set_recv_buffer_size(32768);
 }
 
-/// Memcached backend implementation with optional connection pooling
-#[derive(Debug)]
+/// Memcached backend implementation with a robust connection pool.
 pub struct MemcachedBackend {
     pub name: String,
     pub server: String,
-    pub connection_pool: Option<Arc<MemcachedPool>>,
+    pub connection_pool: Option<MemcachedPool>,
     pub metrics: Arc<AtomicBackendMetrics>,
 }
 
 impl MemcachedBackend {
-    /// Create a new backend without connection pooling (legacy)
+    /// Create a new backend without connection pooling.
     pub fn new(name: String, server: String) -> Self {
         let metrics = Arc::new(AtomicBackendMetrics::new(name.clone()));
         Self {
@@ -68,19 +58,25 @@ impl MemcachedBackend {
         }
     }
 
-    /// Create a new backend from configuration (with optional connection pooling)
+    /// Create a new backend from configuration, with an optional connection pool.
     pub async fn from_config(name: String, config: &BackendConfig) -> Result<Self, BackendError> {
+        let metrics = Arc::new(AtomicBackendMetrics::new(name.clone()));
         let connection_pool = if let Some(pool_config) = &config.connection_pool {
-            // Create connection pool
-            let pool = ConnectionPoolBuilder::build_pool(config.server.clone(), pool_config)
+            let manager = MemcachedConnectionManager::new(config.server.clone());
+            let pool = Pool::builder()
+                .max_size(pool_config.max_connections)
+                .min_idle(Some(pool_config.min_connections))
+                .connection_timeout(Duration::from_secs(pool_config.connection_timeout_secs))
+                .idle_timeout(Some(Duration::from_secs(pool_config.idle_timeout_secs)))
+                .max_lifetime(Some(Duration::from_secs(pool_config.max_lifetime_secs)))
+                // Removed test_on_check_out - can cause connection drops under high load
+                .build(manager)
                 .await
                 .map_err(|e| BackendError::PoolCreationFailed(e.to_string()))?;
-            Some(Arc::new(pool))
+            Some(pool)
         } else {
             None
         };
-
-        let metrics = Arc::new(AtomicBackendMetrics::new(name.clone()));
 
         Ok(Self {
             name,
@@ -89,29 +85,18 @@ impl MemcachedBackend {
             metrics,
         })
     }
-
-    /// Create a backend with a custom connection pool
-    pub fn with_connection_pool(name: String, server: String, pool: Arc<MemcachedPool>) -> Self {
-        let metrics = Arc::new(AtomicBackendMetrics::new(name.clone()));
-        Self {
-            name,
-            server,
-            connection_pool: Some(pool),
-            metrics,
-        }
-    }
 }
 
 #[async_trait]
 impl Backend for MemcachedBackend {
+    /// Establishes a direct, non-pooled connection to the backend.
     async fn connect(&self) -> Result<TcpStream, BackendError> {
-        use tokio::time::{timeout, Duration};
+        use tokio::time::timeout;
 
+        tracing::info!("🔗 [{}] Creating DIRECT connection (not using pool)", self.name);
         self.metrics.record_connection_attempt();
         let start = Instant::now();
-
-        // Add timeout for direct connection (1 second max)
-        let connect_timeout = Duration::from_millis(1000);
+        let connect_timeout = Duration::from_millis(5000);
 
         let result = timeout(connect_timeout, TcpStream::connect(&self.server)).await;
 
@@ -119,10 +104,7 @@ impl Backend for MemcachedBackend {
             Ok(Ok(stream)) => {
                 let latency = start.elapsed();
                 self.metrics.record_connection_success(latency);
-
-                // Apply socket optimizations (best-effort)
                 optimize_socket_for_latency(&stream);
-
                 Ok(stream)
             }
             Ok(Err(e)) => {
@@ -131,30 +113,52 @@ impl Backend for MemcachedBackend {
             }
             Err(_) => {
                 self.metrics.record_connection_failure();
-                Err(BackendError::ConnectionFailed(format!("Connection to {} timed out after 1s", self.server)))
+                Err(BackendError::ConnectionFailed(format!(
+                    "Connection to {} timed out after 5s",
+                    self.server
+                )))
             }
         }
     }
 
-    async fn get_pooled_stream(&self) -> Result<TcpStream, BackendError> {
-        if let Some(_pool) = &self.connection_pool {
-            // Connection pool is configured for this backend
-            tracing::debug!(
-                "🏊 Backend {} has connection pool configured (min: {}, max: {})",
+    /// Retrieves a connection from the pool.
+    async fn get_pooled_stream(
+        &self,
+    ) -> Result<bb8::PooledConnection<'_, MemcachedConnectionManager>, BackendError> {
+        if let Some(pool) = &self.connection_pool {
+            let pool_state = pool.state();
+            tracing::info!(
+                "🏊 [{}] Getting connection from bb8 pool: {} connections available, {} idle",
                 self.name,
-                "configured",
-                "configured"
+                pool_state.connections,
+                pool_state.idle_connections
             );
 
-            // For demo purposes, just use direct connection but log that pool is available
-            // In production with real backends, this would use the actual pool
-            let stream = self.connect().await?;
-            tracing::debug!("🔗 Using direct connection for demo (pool ready for production)");
-            Ok(stream)
+            self.metrics.record_connection_attempt();
+            let start = Instant::now();
+            match pool.get().await {
+                Ok(conn) => {
+                    let latency = start.elapsed();
+                    self.metrics.record_connection_success(latency);
+                    let pool_state_after = pool.state();
+                    tracing::info!(
+                        "🎯 [{}] bb8 pool connection acquired in {}ms: {} connections, {} idle",
+                        self.name,
+                        latency.as_millis(),
+                        pool_state_after.connections,
+                        pool_state_after.idle_connections
+                    );
+                    Ok(conn)
+                }
+                Err(e) => {
+                    self.metrics.record_connection_failure();
+                    tracing::error!("❌ [{}] bb8 pool connection failed: {}", self.name, e);
+                    Err(BackendError::PoolGetFailed(e.to_string()))
+                }
+            }
         } else {
-            // No pool configured, use direct connection
-            tracing::debug!("🔗 No connection pool configured for {}", self.name);
-            self.connect().await
+            tracing::warn!("⚠️  [{}] No connection pool configured, should not happen!", self.name);
+            Err(BackendError::NoConnectionPool)
         }
     }
 
@@ -176,7 +180,7 @@ impl Backend for MemcachedBackend {
 }
 
 impl MemcachedBackend {
-    /// Execute an operation with latency measurement (helper method)
+    /// Executes an operation with latency measurement.
     pub async fn execute_with_metrics<T, E>(
         &self,
         operation: impl std::future::Future<Output = Result<T, E>> + Send,
@@ -188,9 +192,10 @@ impl MemcachedBackend {
         let result = operation.await;
         let latency = start.elapsed();
 
-        match &result {
-            Ok(_) => self.metrics.record_success(latency),
-            Err(_) => self.metrics.record_failure(Some(latency)),
+        if result.is_ok() {
+            self.metrics.record_success(latency);
+        } else {
+            self.metrics.record_failure(Some(latency));
         }
 
         result
@@ -215,6 +220,7 @@ pub enum BackendError {
 mod tests {
     use super::*;
     use crate::config::ConnectionPoolConfig;
+    use tokio::net::TcpListener;
 
     #[tokio::test]
     async fn test_backend_creation_without_pool() {
@@ -224,16 +230,101 @@ mod tests {
         assert!(!backend.uses_connection_pool());
     }
 
-    #[test]
-    fn test_backend_with_pool_config() {
+    #[tokio::test]
+    async fn test_backend_with_pool_config() {
+        // Mock a TCP server
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
         let config = BackendConfig {
             backend_type: "memcached".to_string(),
-            server: "127.0.0.1:11211".to_string(),
-            connection_pool: Some(ConnectionPoolConfig::default()),
+            server: addr.to_string(),
+            connection_pool: Some(ConnectionPoolConfig {
+                min_connections: 1,
+                max_connections: 2,
+                ..Default::default()
+            }),
         };
 
-        // Note: We would need a running server to actually test pool creation
-        // For now, just verify the config structure
-        assert!(config.connection_pool.is_some());
+        let backend = MemcachedBackend::from_config("test_pool".to_string(), &config)
+            .await
+            .unwrap();
+
+        assert!(backend.uses_connection_pool());
+        let pool = backend.connection_pool.as_ref().unwrap();
+        assert!(pool.state().connections >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_pooled_stream_success() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Start a task to accept connections in the background
+        tokio::spawn(async move {
+            loop {
+                if let Ok((stream, _)) = listener.accept().await {
+                    // Just keep the connection open, no need to handle the protocol
+                    tokio::spawn(async move {
+                        let _ = tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+                        drop(stream);
+                    });
+                }
+            }
+        });
+
+        let config = BackendConfig {
+            backend_type: "memcached".to_string(),
+            server: addr.to_string(),
+            connection_pool: Some(ConnectionPoolConfig {
+                connection_timeout_secs: 1, // Short timeout for test
+                ..Default::default()
+            }),
+        };
+
+        let backend = MemcachedBackend::from_config("test_pool".to_string(), &config)
+            .await
+            .unwrap();
+
+        // The first get should succeed and create a connection.
+        let conn_result = backend.get_pooled_stream().await;
+        if let Err(ref e) = conn_result {
+            println!("Connection error: {:?}", e);
+        }
+        assert!(conn_result.is_ok());
+
+        // The pool should have at least one connection (bb8 pre-populates with min_connections)
+        let pool = backend.connection_pool.as_ref().unwrap();
+        assert!(pool.state().connections >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_pooled_stream_failure() {
+        // Use an invalid address to trigger a connection failure.
+        let config = BackendConfig {
+            backend_type: "memcached".to_string(),
+            server: "127.0.0.1:1".to_string(), // Invalid port
+            connection_pool: Some(ConnectionPoolConfig {
+                connection_timeout_secs: 1,
+                ..Default::default()
+            }),
+        };
+
+        // We expect pool creation to fail here if it tries to connect eagerly,
+        // or for `get_pooled_stream` to fail if it connects lazily.
+        // `bb8` connects lazily by default.
+        let backend_result = MemcachedBackend::from_config("test_fail".to_string(), &config).await;
+
+        // Depending on bb8's build strategy, this might not fail.
+        // The real test is trying to get a connection.
+        if let Ok(backend) = backend_result {
+            let conn_result = backend.get_pooled_stream().await;
+            assert!(conn_result.is_err());
+            if let Err(BackendError::PoolGetFailed(_)) = conn_result {
+                // This is the expected outcome.
+            } else {
+                panic!("Expected PoolGetFailed error");
+            }
+        }
     }
 }

@@ -11,51 +11,51 @@ backends:
     type: "memcached"
     server: "memcached1:11211"
     connection_pool:
-      min_connections: 5      # Keep 5 connections warm
-      max_connections: 20     # Allow up to 20 concurrent connections
-      connection_timeout_secs: 5
-      idle_timeout_secs: 300  # 5 minutes
-      max_lifetime_secs: 3600 # 1 hour
+      min_connections: 10     # Keep 10 connections warm
+      max_connections: 100    # Allow up to 100 concurrent connections
+      connection_timeout_secs: 10
+      idle_timeout_secs: 600  # 10 minutes
+      max_lifetime_secs: 7200 # 2 hours
 
   cache2:
     type: "memcached"
     server: "memcached2:11211"
     connection_pool:
-      min_connections: 5
-      max_connections: 20
-      connection_timeout_secs: 5
-      idle_timeout_secs: 300
-      max_lifetime_secs: 3600
+      min_connections: 10
+      max_connections: 100
+      connection_timeout_secs: 10
+      idle_timeout_secs: 600
+      max_lifetime_secs: 7200
 
   cache3:
     type: "memcached"
     server: "memcached3:11211"
     connection_pool:
-      min_connections: 5
-      max_connections: 20
-      connection_timeout_secs: 5
-      idle_timeout_secs: 300
-      max_lifetime_secs: 3600
+      min_connections: 10
+      max_connections: 100
+      connection_timeout_secs: 10
+      idle_timeout_secs: 600
+      max_lifetime_secs: 7200
 
   cache4:
     type: "memcached"
     server: "memcached4:11211"
     connection_pool:
-      min_connections: 5
-      max_connections: 20
-      connection_timeout_secs: 5
-      idle_timeout_secs: 300
-      max_lifetime_secs: 3600
+      min_connections: 10
+      max_connections: 100
+      connection_timeout_secs: 10
+      idle_timeout_secs: 600
+      max_lifetime_secs: 7200
 
   cache5:
     type: "memcached"
     server: "memcached5:11211"
     connection_pool:
-      min_connections: 5
-      max_connections: 20
-      connection_timeout_secs: 5
-      idle_timeout_secs: 300
-      max_lifetime_secs: 3600
+      min_connections: 10
+      max_connections: 100
+      connection_timeout_secs: 10
+      idle_timeout_secs: 600
+      max_lifetime_secs: 7200
 
 # Round robin pool with all 5 backends
 pools:

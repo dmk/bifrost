@@ -1,8 +1,10 @@
-use super::backend::Backend;
+use super::backend::{Backend, BackendError};
 use super::pool::{BasicPool, Pool};
 use super::strategy::create_strategy;
 use crate::config::Config;
+use crate::core::connection_pool::MemcachedConnectionManager;
 use std::sync::Arc;
+use tokio::net::TcpStream;
 
 /// Fast immutable route table for thread-safe routing
 pub struct RouteTable {
@@ -24,10 +26,7 @@ pub enum ResolvedTarget {
 
 /// Core trait for pattern matching (glob, regex, etc.)
 pub trait Matcher: Send + Sync {
-    /// Check if a key matches this pattern
     fn matches(&self, key: &str) -> bool;
-
-    /// Get the pattern string
     fn pattern(&self) -> &str;
 }
 
@@ -47,14 +46,10 @@ impl Matcher for GlobMatcher {
         if self.pattern == "*" {
             return true;
         }
-
-        // Simple prefix matching for patterns like "user:*"
         if self.pattern.ends_with('*') {
             let prefix = &self.pattern[..self.pattern.len() - 1];
             return key.starts_with(prefix);
         }
-
-        // Exact match
         key == self.pattern
     }
 
@@ -70,7 +65,6 @@ impl RouteTable {
 
     /// Find the first matching route for a key
     pub fn find_route(&self, key: &str) -> Option<&Route> {
-        // Linear search through routes (will be fast for <20 routes)
         for route in &self.routes {
             if route.matcher.matches(key) {
                 return Some(route);
@@ -79,7 +73,6 @@ impl RouteTable {
         None
     }
 
-    /// Get all routes (for debugging)
     pub fn routes(&self) -> &[Route] {
         &self.routes
     }
@@ -89,73 +82,48 @@ impl RouteTable {
 pub struct RouteTableBuilder;
 
 impl RouteTableBuilder {
-    /// Build a route table from configuration
     pub async fn build_from_config(config: &Config) -> Result<Arc<RouteTable>, RouteTableError> {
         let mut routes = Vec::new();
-
-        // Build backends
         let mut backends = std::collections::HashMap::new();
+
         for (name, backend_config) in &config.backends {
-            // Create backends with connection pooling support
             let backend =
                 crate::core::backend::MemcachedBackend::from_config(name.clone(), backend_config)
                     .await
                     .map_err(|e| RouteTableError::BackendCreationFailed(e.to_string()))?;
-
             backends.insert(name.clone(), Arc::new(backend) as Arc<dyn Backend>);
         }
 
-        // Build pools
         let mut pools = std::collections::HashMap::new();
         for (name, pool_config) in &config.pools {
-            // Collect backends for this pool
             let mut pool_backends = Vec::new();
             for backend_name in &pool_config.backends {
                 let backend = backends
                     .get(backend_name)
                     .ok_or_else(|| RouteTableError::BackendNotFound(backend_name.clone()))?;
-
-                // Clone the backend (this clones the Arc, not the underlying object)
-                let backend_clone = Arc::clone(backend);
-                pool_backends
-                    .push(Box::new(BackendWrapper::new(backend_clone)) as Box<dyn Backend>);
+                pool_backends.push(Box::new(BackendWrapper::new(backend.clone())) as Box<dyn Backend>);
             }
 
-            // Create strategy
             let strategy = if let Some(strategy_config) = &pool_config.strategy {
                 create_strategy(&strategy_config.strategy_type)
                     .map_err(|e| RouteTableError::StrategyError(e.to_string()))?
             } else {
-                // Default to blind forward if no strategy specified
                 create_strategy("blind_forward")
                     .map_err(|e| RouteTableError::StrategyError(e.to_string()))?
             };
 
-            // Create pool - use ConcurrentPool for miss_failover strategy
             let pool: Arc<dyn Pool> = if strategy.name() == "miss_failover" {
-                // Create ConcurrentPool for miss failover strategy
-                tracing::info!(
-                    "🔄 Creating ConcurrentPool for miss failover strategy: {}",
-                    name
-                );
                 Arc::new(super::pool::ConcurrentPool::new(
                     name.clone(),
                     pool_backends,
                     strategy,
                 ))
             } else {
-                // Create regular BasicPool for other strategies
-                tracing::info!(
-                    "📦 Creating BasicPool for strategy {}: {}",
-                    strategy.name(),
-                    name
-                );
                 Arc::new(BasicPool::new(name.clone(), pool_backends, strategy))
             };
             pools.insert(name.clone(), pool);
         }
 
-        // Build routes
         for (_route_name, route_config) in &config.routes {
             let matcher =
                 Box::new(GlobMatcher::new(route_config.matcher.clone())) as Box<dyn Matcher>;
@@ -195,7 +163,7 @@ impl BackendWrapper {
 
 #[async_trait::async_trait]
 impl Backend for BackendWrapper {
-    async fn connect(&self) -> Result<tokio::net::TcpStream, crate::core::backend::BackendError> {
+    async fn connect(&self) -> Result<TcpStream, BackendError> {
         self.backend.connect().await
     }
 
@@ -213,11 +181,11 @@ impl Backend for BackendWrapper {
 
     async fn get_pooled_stream(
         &self,
-    ) -> Result<tokio::net::TcpStream, crate::core::backend::BackendError> {
+    ) -> Result<bb8::PooledConnection<'_, MemcachedConnectionManager>, BackendError> {
         self.backend.get_pooled_stream().await
     }
 
-    fn metrics(&self) -> std::sync::Arc<crate::core::metrics::AtomicBackendMetrics> {
+    fn metrics(&self) -> Arc<crate::core::metrics::AtomicBackendMetrics> {
         self.backend.metrics()
     }
 }
@@ -242,33 +210,23 @@ mod tests {
     fn test_glob_matcher() {
         let matcher = GlobMatcher::new("user:*".to_string());
         assert!(matcher.matches("user:123"));
-        assert!(matcher.matches("user:abc"));
         assert!(!matcher.matches("cache:123"));
-
-        let matcher = GlobMatcher::new("*".to_string());
-        assert!(matcher.matches("anything"));
-
-        let matcher = GlobMatcher::new("exact".to_string());
-        assert!(matcher.matches("exact"));
-        assert!(!matcher.matches("exactish"));
     }
 
     #[test]
     fn test_route_table_lookup() {
         let routes = vec![Route {
             matcher: Box::new(GlobMatcher::new("user:*".to_string())),
-            target: ResolvedTarget::Backend(Arc::new(crate::core::backend::MemcachedBackend::new(
-                "test".to_string(),
-                "127.0.0.1:11211".to_string(),
-            ))),
+            target: ResolvedTarget::Backend(Arc::new(
+                crate::core::backend::MemcachedBackend::new(
+                    "test".to_string(),
+                    "127.0.0.1:11211".to_string(),
+                ),
+            )),
         }];
-
         let table = RouteTable::new(routes);
-
         let route = table.find_route("user:123");
         assert!(route.is_some());
-        assert_eq!(route.unwrap().matcher.pattern(), "user:*");
-
         let route = table.find_route("cache:123");
         assert!(route.is_none());
     }

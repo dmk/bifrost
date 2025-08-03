@@ -1,1 +1,4 @@
 /target
+
+/tests/benchmark/benchmark_results/*
+!/tests/benchmark/benchmark_results/.keep

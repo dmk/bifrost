@@ -1,13 +1,13 @@
-use crate::config::ConnectionPoolConfig;
 use async_trait::async_trait;
-use bb8::{Pool, PooledConnection};
-use std::time::Duration;
+use bb8::Pool;
 use tokio::net::TcpStream;
 
-/// Connection manager for bb8 that creates TCP connections to memcached servers
+use crate::core::backend::optimize_socket_for_latency;
+
+/// Connection manager for bb8 that creates TCP connections to memcached servers.
 #[derive(Debug, Clone)]
 pub struct MemcachedConnectionManager {
-    server_address: String,
+    pub server_address: String,
 }
 
 impl MemcachedConnectionManager {
@@ -19,122 +19,51 @@ impl MemcachedConnectionManager {
 #[async_trait]
 impl bb8::ManageConnection for MemcachedConnectionManager {
     type Connection = TcpStream;
-    type Error = ConnectionError;
+    type Error = std::io::Error;
 
+    /// Connect to the memcached server.
     async fn connect(&self) -> Result<Self::Connection, Self::Error> {
-        let stream = TcpStream::connect(&self.server_address)
-            .await
-            .map_err(|e| ConnectionError::ConnectionFailed(e.to_string()))?;
-
-        // Apply socket optimizations
+        tracing::info!("🆕 bb8 creating NEW connection to {}", self.server_address);
+        let stream = TcpStream::connect(&self.server_address).await?;
         optimize_socket_for_latency(&stream);
-
+        tracing::info!("✅ bb8 connection established to {}", self.server_address);
         Ok(stream)
     }
 
+    /// Check if the connection is still valid.
     async fn is_valid(&self, conn: &mut Self::Connection) -> Result<(), Self::Error> {
-        // Use readable check with timeout to avoid blocking while still validating properly
-        match tokio::time::timeout(
-            std::time::Duration::from_millis(100),
-            conn.readable()
-        ).await {
-            Ok(Ok(_)) => Ok(()),
-            Ok(Err(_)) | Err(_) => Err(ConnectionError::ConnectionInvalid),
+        // Quick check: if we can read the peer address, the connection is likely valid
+        match conn.peer_addr() {
+            Ok(_) => {
+                tracing::debug!("✅ bb8 connection validation passed for {}", self.server_address);
+                Ok(())
+            }
+            Err(e) => {
+                tracing::warn!("❌ bb8 connection validation failed for {}: {}", self.server_address, e);
+                Err(e)
+            }
         }
     }
 
-    fn has_broken(&self, _conn: &mut Self::Connection) -> bool {
-        // For TCP connections, bb8 will handle broken connections through is_valid
-        false
+    /// Determines if the connection is broken.
+    /// Use a non-intrusive check that doesn't corrupt the protocol.
+    fn has_broken(&self, conn: &mut Self::Connection) -> bool {
+        // For a proxy scenario, we need to check if our connection to the BACKEND is broken,
+        // not if the client connection is broken. Since we can't easily distinguish between
+        // client disconnection vs backend disconnection, we'll be conservative and assume
+        // the connection is still good unless we can definitively prove it's broken.
+
+        // Try a very lightweight check: see if the socket is readable without blocking
+        match conn.try_read(&mut [0u8; 0]) {
+            Ok(_) => false, // Readable but no data means connection is alive
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => false, // Not readable yet, still alive
+            Err(_) => {
+                tracing::warn!("🔴 bb8 detected broken connection to {}", self.server_address);
+                true // Some other error, connection is likely broken
+            }
+        }
     }
 }
 
-/// Optimize TCP socket for low latency (moved from backend.rs)
-fn optimize_socket_for_latency(stream: &TcpStream) {
-    // Disable Nagle's algorithm for lower latency
-    let _ = stream.set_nodelay(true);
-
-    // Additional socket optimizations using socket2
-    let socket_ref = socket2::SockRef::try_from(stream).unwrap();
-    // Set socket to reuse address for faster reconnection
-    let _ = socket_ref.set_reuse_address(true);
-
-    // Optimize send/receive buffer sizes for cache workloads
-    // 32KB buffers balance latency vs throughput for cache operations
-    let _ = socket_ref.set_send_buffer_size(32768);
-    let _ = socket_ref.set_recv_buffer_size(32768);
-}
-
-/// Type alias for our connection pool
+/// Type alias for our connection pool.
 pub type MemcachedPool = Pool<MemcachedConnectionManager>;
-
-/// Type alias for a pooled connection (without static lifetime constraint)
-pub type PooledMemcachedConnection<'a> = PooledConnection<'a, MemcachedConnectionManager>;
-
-/// Builder for creating connection pools
-pub struct ConnectionPoolBuilder;
-
-impl ConnectionPoolBuilder {
-    /// Create a new connection pool with the given configuration
-    pub async fn build_pool(
-        server_address: String,
-        config: &ConnectionPoolConfig,
-    ) -> Result<MemcachedPool, ConnectionError> {
-        let manager = MemcachedConnectionManager::new(server_address);
-
-        let pool = Pool::builder()
-            .min_idle(Some(config.min_connections))
-            .max_size(config.max_connections)
-            .connection_timeout(Duration::from_secs(config.connection_timeout_secs))
-            .idle_timeout(Some(Duration::from_secs(config.idle_timeout_secs)))
-            .max_lifetime(Some(Duration::from_secs(config.max_lifetime_secs)))
-            .build(manager)
-            .await
-            .map_err(|e| ConnectionError::PoolCreationFailed(e.to_string()))?;
-
-        Ok(pool)
-    }
-
-    /// Create a pool with default configuration
-    pub async fn build_default_pool(
-        server_address: String,
-    ) -> Result<MemcachedPool, ConnectionError> {
-        let config = ConnectionPoolConfig::default();
-        Self::build_pool(server_address, &config).await
-    }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum ConnectionError {
-    #[error("Connection failed: {0}")]
-    ConnectionFailed(String),
-    #[error("Connection pool creation failed: {0}")]
-    PoolCreationFailed(String),
-    #[error("Failed to get connection from pool: {0}")]
-    PoolGetFailed(String),
-    #[error("Connection is invalid")]
-    ConnectionInvalid,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_connection_pool_config_defaults() {
-        let config = ConnectionPoolConfig::default();
-        assert_eq!(config.min_connections, 2);
-        assert_eq!(config.max_connections, 10);
-        assert_eq!(config.connection_timeout_secs, 5);
-        assert_eq!(config.idle_timeout_secs, 300);
-        assert_eq!(config.max_lifetime_secs, 3600);
-    }
-
-    #[tokio::test]
-    async fn test_connection_manager_creation() {
-        let manager = MemcachedConnectionManager::new("127.0.0.1:11211".to_string());
-        assert_eq!(manager.server_address, "127.0.0.1:11211");
-    }
-
-    // Note: Additional integration tests would require a running memcached server
-}

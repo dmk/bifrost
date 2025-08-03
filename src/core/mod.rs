@@ -8,7 +8,7 @@ pub mod strategy;
 
 // Re-export core traits
 pub use backend::Backend;
-pub use connection_pool::{ConnectionPoolBuilder, MemcachedPool};
+pub use connection_pool::MemcachedPool;
 pub use metrics::{AtomicBackendMetrics, BackendMetrics, MetricsSnapshot};
 pub use pool::{BasicPool, ConcurrentPool, Pool};
 pub use protocols::Protocol;
