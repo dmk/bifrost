@@ -1,6 +1,7 @@
 use bifrost::{config::Config, server::BifrostServer};
 use clap::Parser;
 use tracing::{error, info};
+use tracing_appender::non_blocking;
 
 #[derive(Parser)]
 #[command(name = "bifrost")]
@@ -13,8 +14,17 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging
-    tracing_subscriber::fmt::init();
+    // Initialize non-blocking logging
+    let (non_blocking_writer, _guard) = non_blocking(std::io::stderr());
+    tracing_subscriber::fmt()
+        .with_writer(non_blocking_writer)
+        .with_ansi(true)
+        .with_target(false)
+        .with_thread_ids(false)
+        .with_thread_names(false)
+        .with_level(true)
+        .compact()
+        .init();
 
     let args = Args::parse();
 

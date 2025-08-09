@@ -92,7 +92,7 @@ impl Backend for MemcachedBackend {
     async fn connect(&self) -> Result<TcpStream, BackendError> {
         use tokio::time::timeout;
 
-        tracing::info!("🔗 [{}] Creating DIRECT connection (not using pool)", self.name);
+        tracing::debug!("[{}] creating direct connection (not using pool)", self.name);
         self.metrics.record_connection_attempt();
         let start = Instant::now();
         let connect_timeout = Duration::from_millis(5000);
@@ -125,13 +125,15 @@ impl Backend for MemcachedBackend {
         &self,
     ) -> Result<bb8::PooledConnection<'_, MemcachedConnectionManager>, BackendError> {
         if let Some(pool) = &self.connection_pool {
-            let pool_state = pool.state();
-            tracing::info!(
-                "🏊 [{}] Getting connection from bb8 pool: {} connections available, {} idle",
-                self.name,
-                pool_state.connections,
-                pool_state.idle_connections
-            );
+            if tracing::enabled!(tracing::Level::DEBUG) {
+                let pool_state = pool.state();
+                tracing::debug!(
+                    "[{}] getting connection from bb8 pool: connections={}, idle={}",
+                    self.name,
+                    pool_state.connections,
+                    pool_state.idle_connections
+                );
+            }
 
             self.metrics.record_connection_attempt();
             let start = Instant::now();
@@ -139,24 +141,26 @@ impl Backend for MemcachedBackend {
                 Ok(conn) => {
                     let latency = start.elapsed();
                     self.metrics.record_connection_success(latency);
-                    let pool_state_after = pool.state();
-                    tracing::info!(
-                        "🎯 [{}] bb8 pool connection acquired in {}ms: {} connections, {} idle",
-                        self.name,
-                        latency.as_millis(),
-                        pool_state_after.connections,
-                        pool_state_after.idle_connections
-                    );
+                    if tracing::enabled!(tracing::Level::DEBUG) {
+                        let pool_state_after = pool.state();
+                        tracing::debug!(
+                            "[{}] bb8 pool connection acquired in {}ms: connections={}, idle={}",
+                            self.name,
+                            latency.as_millis(),
+                            pool_state_after.connections,
+                            pool_state_after.idle_connections
+                        );
+                    }
                     Ok(conn)
                 }
                 Err(e) => {
                     self.metrics.record_connection_failure();
-                    tracing::error!("❌ [{}] bb8 pool connection failed: {}", self.name, e);
+                    tracing::error!("[{}] bb8 pool connection failed: {}", self.name, e);
                     Err(BackendError::PoolGetFailed(e.to_string()))
                 }
             }
         } else {
-            tracing::warn!("⚠️  [{}] No connection pool configured, should not happen!", self.name);
+            tracing::warn!("[{}] no connection pool configured; should not happen", self.name);
             Err(BackendError::NoConnectionPool)
         }
     }

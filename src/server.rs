@@ -56,7 +56,7 @@ impl BifrostServer {
 
         info!("Starting Bifrost server");
         info!(
-            "Listener '{}' binding to: {}",
+            "Listener '{}' binding to {}",
             listener_name, listener_config.bind
         );
 
@@ -69,7 +69,7 @@ impl BifrostServer {
         loop {
             match listener.accept().await {
                 Ok((client_socket, addr)) => {
-                    debug!("New connection from: {}", addr);
+                    debug!("new connection from {}", addr);
                     optimize_client_socket(&client_socket);
 
                     let route_table = Arc::clone(&self.route_table);
@@ -80,12 +80,12 @@ impl BifrostServer {
                             handle_connection_with_routing(client_socket, route_table, protocol)
                                 .await
                         {
-                            error!("Connection error: {}", e);
+                            error!("connection error: {}", e);
                         }
                     });
                 }
                 Err(e) => {
-                    error!("Failed to accept connection: {}", e);
+                    error!("failed to accept connection: {}", e);
                 }
             }
         }
@@ -100,15 +100,12 @@ async fn handle_concurrent_pool_request(
 ) -> Result<(), ServerError> {
     use tokio::io::AsyncWriteExt;
 
-    debug!("Handling concurrent pool request for key: {}", key);
+    debug!("handling concurrent pool request for key {}", key);
     let request_data = first_line.as_bytes().to_vec();
 
     match pool.handle_concurrent_request(key, &request_data).await {
         Ok(response) => {
-            debug!(
-                "Concurrent pool returned response: {} bytes",
-                response.len()
-            );
+            debug!("concurrent pool returned response: {} bytes", response.len());
             let mut client_stream = client_reader.into_inner();
             client_stream.write_all(&response).await.map_err(|e| {
                 ServerError::IoError(format!("Failed to write response to client: {}", e))
@@ -119,7 +116,7 @@ async fn handle_concurrent_pool_request(
             Ok(())
         }
         Err(e) => {
-            error!("Concurrent pool request failed: {}", e);
+            error!("concurrent pool request failed: {}", e);
             let error_response = b"SERVER_ERROR backend pool error\r\n";
             let mut client_stream = client_reader.into_inner();
             client_stream
@@ -298,9 +295,9 @@ async fn handle_connection_with_routing(
         .write_all(first_line.as_bytes())
         .await
         .map_err(|e| {
-            ServerError::IoError(format!("Failed to write first line to backend: {}", e))
+            ServerError::IoError(format!("failed to write first line to backend: {}", e))
         })?;
-    backend_connection.flush().await.map_err(|e| ServerError::IoError(format!("Failed to flush backend: {}", e)))?;
+    backend_connection.flush().await.map_err(|e| ServerError::IoError(format!("failed to flush backend: {}", e)))?;
 
 
     let buffered_data = client_reader.buffer();
@@ -309,23 +306,23 @@ async fn handle_connection_with_routing(
             .write_all(buffered_data)
             .await
             .map_err(|e| {
-                ServerError::IoError(format!("Failed to forward initial buffer: {}", e))
+                ServerError::IoError(format!("failed to forward initial buffer: {}", e))
             })?;
-        backend_connection.flush().await.map_err(|e| ServerError::IoError(format!("Failed to flush backend: {}", e)))?;
+        backend_connection.flush().await.map_err(|e| ServerError::IoError(format!("failed to flush backend: {}", e)))?;
     }
 
     let mut client_stream = client_reader.into_inner();
     let result = proxy_bidirectional(&mut client_stream, &mut backend_connection)
         .await
-        .map_err(|e| ServerError::IoError(format!("Proxy error: {}", e)));
+        .map_err(|e| ServerError::IoError(format!("proxy error: {}", e)));
 
     // Log when the connection is about to be returned to pool
     match &backend_connection {
         BackendConnection::Pooled(_) => {
-            tracing::info!("🔄 Returning pooled connection to pool");
+            tracing::debug!("returning pooled connection to pool");
         }
         BackendConnection::Direct(_) => {
-            tracing::debug!("📴 Closing direct connection");
+            tracing::debug!("closing direct connection");
         }
     }
 
