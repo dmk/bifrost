@@ -6,11 +6,13 @@ pub mod blind_forward;
 pub mod failover;
 pub mod miss_failover;
 pub mod round_robin;
+pub mod least_latency;
 
 pub use blind_forward::BlindForwardStrategy;
 pub use failover::FailoverStrategy;
 pub use miss_failover::MissFailoverStrategy;
 pub use round_robin::RoundRobinStrategy;
+pub use least_latency::LeastLatencyStrategy;
 
 /// Core trait for routing strategies
 #[async_trait]
@@ -32,6 +34,7 @@ pub fn create_strategy(strategy_type: &str) -> Result<Box<dyn Strategy>, Strateg
         "round_robin" => Ok(Box::new(RoundRobinStrategy::new())),
         "failover" => Ok(Box::new(FailoverStrategy::new())),
         "miss_failover" => Ok(Box::new(MissFailoverStrategy::new())),
+        "least_latency" => Ok(Box::new(LeastLatencyStrategy::new())),
         _ => Err(StrategyError::UnknownStrategy(strategy_type.to_string())),
     }
 }
