@@ -24,6 +24,19 @@ fi
 echo "✅ Docker is running"
 echo
 
+# Prebuild Bifrost AMD64 image so compose can reuse it
+echo "🏗️  Building Bifrost image for linux/amd64..."
+if ! docker buildx inspect > /dev/null 2>&1; then
+    echo "🔧 Creating default buildx builder..."
+    docker buildx create --use --name bifrost-builder >/dev/null 2>&1 || true
+fi
+docker buildx build --platform linux/amd64 -t bifrost:amd64 --load ../.. || {
+    echo "❌ Failed to build bifrost:amd64"
+    exit 1
+}
+echo "✅ Built bifrost:amd64"
+echo
+
 # Start all services (docker-compose will build Bifrost if needed)
 echo "🐳 Starting benchmark infrastructure..."
 docker-compose -f docker-compose-benchmark.yml down > /dev/null 2>&1 || true
@@ -87,6 +100,7 @@ run_test() {
     local output_file="$RESULTS_DIR/${proxy_name}_${test_name}.txt"
 
     docker run --rm \
+        --platform linux/amd64 \
         --network "$NETWORK" \
         -v "$(pwd)/$RESULTS_DIR:/results" \
         redislabs/memtier_benchmark:latest \
@@ -113,7 +127,7 @@ run_test() {
 echo "🔍 Testing connectivity..."
 
 echo "Testing Bifrost..."
-if docker run --rm --network "$NETWORK" redislabs/memtier_benchmark:latest \
+if docker run --rm --platform linux/amd64 --network "$NETWORK" redislabs/memtier_benchmark:latest \
     memtier_benchmark --server=bifrost --port=22122 --protocol=memcache_text \
     --test-time=2 --clients=1 --threads=1 --ratio=1:1 > /dev/null 2>&1; then
     echo "✅ Bifrost is accessible"
@@ -123,7 +137,7 @@ else
 fi
 
 echo "Testing MCRouter..."
-if docker run --rm --network "$NETWORK" redislabs/memtier_benchmark:latest \
+if docker run --rm --platform linux/amd64 --network "$NETWORK" redislabs/memtier_benchmark:latest \
     memtier_benchmark --server=mcrouter --port=11211 --protocol=memcache_text \
     --test-time=2 --clients=1 --threads=1 --ratio=1:1 > /dev/null 2>&1; then
     echo "✅ MCRouter is accessible"

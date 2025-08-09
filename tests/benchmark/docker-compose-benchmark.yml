@@ -7,7 +7,7 @@ services:
     platform: linux/amd64
     ports:
       - "11211:11211"
-    command: ["-v", "-m", "128"]  # Verbose mode, 128MB memory
+    command: ["-v", "-m", "128", "-c", "4096", "-t", "4", "-R", "200"]  # More connections/threads/read rate
     container_name: benchmark-memcached1
 
   memcached2:
@@ -15,7 +15,7 @@ services:
     platform: linux/amd64
     ports:
       - "11212:11211"
-    command: ["-v", "-m", "128"]
+    command: ["-v", "-m", "128", "-c", "4096", "-t", "4", "-R", "200"]
     container_name: benchmark-memcached2
 
   memcached3:
@@ -23,7 +23,7 @@ services:
     platform: linux/amd64
     ports:
       - "11213:11211"
-    command: ["-v", "-m", "128"]
+    command: ["-v", "-m", "128", "-c", "4096", "-t", "4", "-R", "200"]
     container_name: benchmark-memcached3
 
   memcached4:
@@ -31,7 +31,7 @@ services:
     platform: linux/amd64
     ports:
       - "11214:11211"
-    command: ["-v", "-m", "128"]
+    command: ["-v", "-m", "128", "-c", "4096", "-t", "4", "-R", "200"]
     container_name: benchmark-memcached4
 
   memcached5:
@@ -39,7 +39,7 @@ services:
     platform: linux/amd64
     ports:
       - "11215:11211"
-    command: ["-v", "-m", "128"]
+    command: ["-v", "-m", "128", "-c", "4096", "-t", "4", "-R", "200"]
     container_name: benchmark-memcached5
 
   # MCRouter for comparison
@@ -61,7 +61,7 @@ services:
 
   # Bifrost proxy
   bifrost:
-    build: ../..  # Build from the root directory where Dockerfile is located
+    image: bifrost:amd64  # Prebuilt AMD64 image tag
     platform: linux/amd64
     ports:
       - "22122:22122"  # Bifrost on port 22122
