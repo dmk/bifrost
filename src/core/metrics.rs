@@ -113,12 +113,10 @@ impl BackendMetrics for AtomicBackendMetrics {
             *last_time = Some(now);
         }
 
-        // Record latency asynchronously
-        let tracker = Arc::clone(&self.latency_tracker);
-        tokio::spawn(async move {
-            let mut tracker = tracker.write().await;
+        // Best-effort latency record without blocking hot path
+        if let Ok(mut tracker) = self.latency_tracker.try_write() {
             tracker.record_latency(latency);
-        });
+        }
     }
 
     fn record_failure(&self, latency: Option<Duration>) {
@@ -131,13 +129,11 @@ impl BackendMetrics for AtomicBackendMetrics {
             *last_time = Some(now);
         }
 
-        // Record latency if available
+        // Record latency if available without blocking hot path
         if let Some(latency) = latency {
-            let tracker = Arc::clone(&self.latency_tracker);
-            tokio::spawn(async move {
-                let mut tracker = tracker.write().await;
+            if let Ok(mut tracker) = self.latency_tracker.try_write() {
                 tracker.record_latency(latency);
-            });
+            }
         }
     }
 
@@ -154,12 +150,10 @@ impl BackendMetrics for AtomicBackendMetrics {
         self.connection_successes.fetch_add(1, Ordering::Relaxed);
         self.increment_current_connections();
 
-        // Record connection latency
-        let tracker = Arc::clone(&self.latency_tracker);
-        tokio::spawn(async move {
-            let mut tracker = tracker.write().await;
+        // Best-effort connection latency record without blocking hot path
+        if let Ok(mut tracker) = self.latency_tracker.try_write() {
             tracker.record_connection_latency(latency);
-        });
+        }
     }
 
     fn record_connection_failure(&self) {
@@ -219,20 +213,13 @@ impl BackendMetrics for AtomicBackendMetrics {
         self.connection_successes.store(0, Ordering::Relaxed);
         self.connection_failures.store(0, Ordering::Relaxed);
         self.current_connections.store(0, Ordering::Relaxed);
-
-                // Reset latency tracker asynchronously
-        let tracker = Arc::clone(&self.latency_tracker);
-        tokio::spawn(async move {
-            let mut tracker = tracker.write().await;
+        // Reset latency tracker and last request time (not on hot path)
+        if let Ok(mut tracker) = self.latency_tracker.try_write() {
             tracker.reset();
-        });
-
-        // Reset last request time
-        let last_time = Arc::clone(&self.last_request_time);
-        tokio::spawn(async move {
-            let mut time = last_time.write().await;
+        }
+        if let Ok(mut time) = self.last_request_time.try_write() {
             *time = None;
-        });
+        }
     }
 
     fn backend_name(&self) -> &str {

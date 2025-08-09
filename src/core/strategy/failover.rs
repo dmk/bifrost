@@ -2,8 +2,8 @@ use super::Strategy;
 use crate::core::backend::Backend;
 use async_trait::async_trait;
 
-/// Failover strategy - tries backends sequentially until one succeeds
-/// Perfect for primary/backup configurations where you want high availability
+/// Failover strategy - selects primary first without probing
+/// Actual failover is handled at request time if the primary fails
 pub struct FailoverStrategy {
     pub name: String,
 }
@@ -32,29 +32,9 @@ impl Strategy for FailoverStrategy {
             return None;
         }
 
-        // Try each backend in order until one connects successfully
-        for backend in backends {
-            match backend.connect().await {
-                Ok(_stream) => {
-                    // Connection successful, return this backend
-                    tracing::debug!("Failover strategy: backend '{}' is healthy", backend.name());
-                    return Some(backend);
-                }
-                Err(e) => {
-                    // Connection failed, try next backend
-                    tracing::warn!(
-                        "Failover strategy: backend '{}' failed: {}",
-                        backend.name(),
-                        e
-                    );
-                    continue;
-                }
-            }
-        }
-
-        // All backends failed
-        tracing::error!("Failover strategy: all {} backends failed", backends.len());
-        None
+        // Do not probe/connect on selection; pick the first (primary),
+        // the caller will handle failures and move to next as needed.
+        backends.first()
     }
 
     fn name(&self) -> &str {
@@ -68,26 +48,23 @@ mod tests {
     use crate::core::backend::MemcachedBackend;
 
     #[tokio::test]
-    async fn test_failover_strategy() {
-        // Create backends with invalid addresses that will fail to connect
-        let bad_backend1 = Box::new(MemcachedBackend::new(
-            "bad1".to_string(),
+    async fn test_failover_strategy_selects_primary_without_probe() {
+        // Backends may be unhealthy; selection should still return the first (primary)
+        let backend1 = Box::new(MemcachedBackend::new(
+            "primary".to_string(),
             "127.0.0.1:1".to_string(),
         )) as Box<dyn Backend>;
-        let bad_backend2 = Box::new(MemcachedBackend::new(
-            "bad2".to_string(),
+        let backend2 = Box::new(MemcachedBackend::new(
+            "secondary".to_string(),
             "127.0.0.1:2".to_string(),
         )) as Box<dyn Backend>;
 
         let strategy = FailoverStrategy::new();
 
-        // Test with all failing backends
-        let failing_backends = vec![bad_backend1, bad_backend2];
-        let result = strategy.select_backend(&failing_backends).await;
-        assert!(
-            result.is_none(),
-            "Should return None when all backends fail"
-        );
+        let backends = vec![backend1, backend2];
+        let selected = strategy.select_backend(&backends).await;
+        assert!(selected.is_some());
+        assert_eq!(selected.unwrap().name(), "primary");
 
         // Test strategy name
         assert_eq!(strategy.name(), "failover");

@@ -195,11 +195,10 @@ impl ConcurrentPool {
         // Race all the futures with a timeout
         let timeout_duration = Duration::from_millis(self.timeout_ms);
 
-        // Wait for all backends to respond (or timeout), then prioritize by order
-        let mut completed_futures = Vec::new();
+        // Wait for backends to respond (or timeout); return on first cache hit
         let mut remaining_futures = futures;
 
-        // Collect all responses within the timeout period
+        // Race and return immediately on first successful cache hit response
         while !remaining_futures.is_empty() {
             match timeout(
                 timeout_duration,
@@ -213,62 +212,32 @@ impl ConcurrentPool {
                     match result {
                         Ok((backend_index, response)) => {
                             tracing::debug!(
-                                "Backend {} (index {}) responded with cache hit",
+                                "concurrent pool: cache hit from backend {} (index {})",
                                 self.backends[backend_index].name(),
                                 backend_index
                             );
-                            completed_futures.push((backend_index, response));
+                            // Drop remaining futures to cancel them via drop
+                            return Ok(response);
                         }
                         Err(_) => {
-                            // This backend failed, continue with others
+                            // This backend failed or miss; continue waiting
                             continue;
                         }
                     }
-
-                    // Continue collecting responses - don't return immediately
                 }
                 Err(_) => {
-                    // Timeout reached, stop collecting
-                    tracing::debug!("Timeout reached, processing collected responses");
-                    break;
+                    // Timeout reached for the next batch; return miss
+                    tracing::debug!(
+                        "concurrent pool: timeout ({}ms) reached, returning miss",
+                        self.timeout_ms
+                    );
+                    return Ok(b"END\r\n".to_vec());
                 }
             }
         }
 
-        // Now prioritize responses by backend order (lower index = higher priority)
-        if !completed_futures.is_empty() {
-            completed_futures.sort_by_key(|(index, _)| *index);
-            let (backend_index, response) = completed_futures.into_iter().next().unwrap();
-
-            tracing::info!(
-                "ConcurrentPool: returning response from backend {} (index {}) [PRIORITY]",
-                self.backends[backend_index].name(),
-                backend_index
-            );
-            return Ok(response);
-        }
-
-        // If we get here, either no backends responded with meaningful data or timeout occurred
-        if completed_futures.is_empty() {
-            tracing::info!(
-                "ConcurrentPool: no backends returned cache hits within {}ms - returning cache miss",
-                self.timeout_ms
-            );
-            // For miss failover strategy, if all backends return cache misses,
-            // we should return a cache miss response, not an error
-            Ok(b"END\r\n".to_vec())
-        } else {
-            // We have some responses, return the highest priority one
-            completed_futures.sort_by_key(|(index, _)| *index);
-            let (backend_index, response) = completed_futures.into_iter().next().unwrap();
-
-            tracing::info!(
-                "ConcurrentPool: returning response from backend {} (index {}) after timeout",
-                self.backends[backend_index].name(),
-                backend_index
-            );
-            Ok(response)
-        }
+        // No futures left; return miss
+        Ok(b"END\r\n".to_vec())
     }
 }
 
