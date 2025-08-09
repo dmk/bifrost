@@ -36,6 +36,17 @@ pub fn optimize_socket_for_latency(stream: &TcpStream) {
     let _ = socket_ref.set_reuse_address(true);
     let _ = socket_ref.set_send_buffer_size(32768);
     let _ = socket_ref.set_recv_buffer_size(32768);
+    // Enable TCP keepalive to avoid idle disconnects and detect dead peers
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        use std::time::Duration;
+        use socket2::TcpKeepalive;
+        let keepalive = TcpKeepalive::new()
+            .with_time(Duration::from_secs(30))
+            .with_interval(Duration::from_secs(10))
+            .with_retries(3);
+        let _ = socket_ref.set_tcp_keepalive(&keepalive);
+    }
 }
 
 /// Memcached backend implementation with a robust connection pool.
