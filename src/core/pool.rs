@@ -547,9 +547,9 @@ mod tests {
         tokio::spawn(async move {
             loop {
                 if let Ok((mut s, _)) = listener1.accept().await {
-                    let _ = tokio::spawn(async move {
+                    std::mem::drop(tokio::spawn(async move {
                         let _ = BufReader::new(&mut s).read_line(&mut String::new()).await;
-                    });
+                    }));
                 }
             }
         });

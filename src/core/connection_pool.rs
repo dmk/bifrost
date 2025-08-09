@@ -107,10 +107,10 @@ mod tests {
             loop {
                 if let Ok((stream, _)) = listener.accept().await {
                     // Keep stream open briefly
-                    let _ = tokio::spawn(async move {
+                    std::mem::drop(tokio::spawn(async move {
                         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                         drop(stream);
-                    });
+                    }));
                 }
             }
         });
