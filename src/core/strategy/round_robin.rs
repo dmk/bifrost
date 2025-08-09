@@ -30,14 +30,14 @@ impl Strategy for RoundRobinStrategy {
     async fn select_backend<'a>(
         &self,
         backends: &'a [Box<dyn Backend>],
-    ) -> Option<&'a Box<dyn Backend>> {
+    ) -> Option<&'a dyn Backend> {
         if backends.is_empty() {
             return None;
         }
 
         // Get next backend using round robin
         let index = self.counter.fetch_add(1, Ordering::Relaxed) % backends.len();
-        backends.get(index)
+        backends.get(index).map(|b| b.as_ref())
     }
 
     fn name(&self) -> &str {

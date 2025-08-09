@@ -20,8 +20,8 @@ impl BlindForwardStrategy {
     pub fn select_backend_sync<'a>(
         &self,
         backends: &'a [Box<dyn Backend>],
-    ) -> Option<&'a Box<dyn Backend>> {
-        backends.first()
+    ) -> Option<&'a dyn Backend> {
+        backends.first().map(|b| b.as_ref())
     }
 }
 
@@ -36,7 +36,7 @@ impl Strategy for BlindForwardStrategy {
     async fn select_backend<'a>(
         &self,
         backends: &'a [Box<dyn Backend>],
-    ) -> Option<&'a Box<dyn Backend>> {
+    ) -> Option<&'a dyn Backend> {
         // Use the fast sync version to avoid async overhead
         self.select_backend_sync(backends)
     }

@@ -27,14 +27,14 @@ impl Strategy for FailoverStrategy {
     async fn select_backend<'a>(
         &self,
         backends: &'a [Box<dyn Backend>],
-    ) -> Option<&'a Box<dyn Backend>> {
+    ) -> Option<&'a dyn Backend> {
         if backends.is_empty() {
             return None;
         }
 
         // Do not probe/connect on selection; pick the first (primary),
         // the caller will handle failures and move to next as needed.
-        backends.first()
+        backends.first().map(|b| b.as_ref())
     }
 
     fn name(&self) -> &str {

@@ -65,12 +65,10 @@ impl RouteTable {
 
     /// Find the first matching route for a key
     pub fn find_route(&self, key: &str) -> Option<&Route> {
-        for route in &self.routes {
-            if route.matcher.matches(key) {
-                return Some(route);
-            }
-        }
-        None
+        self
+            .routes
+            .iter()
+            .find(|route| route.matcher.matches(key))
     }
 
     pub fn routes(&self) -> &[Route] {
@@ -124,7 +122,7 @@ impl RouteTableBuilder {
             pools.insert(name.clone(), pool);
         }
 
-        for (_route_name, route_config) in &config.routes {
+        for route_config in config.routes.values() {
             let matcher =
                 Box::new(GlobMatcher::new(route_config.matcher.clone())) as Box<dyn Matcher>;
 

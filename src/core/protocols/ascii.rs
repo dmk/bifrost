@@ -85,7 +85,7 @@ pub enum AsciiResponse {
 impl AsciiCommand {
     /// Parse an ASCII command from a line
     pub fn parse(line: &str) -> Result<Self, ProtocolError> {
-        let parts: Vec<&str> = line.trim().split_whitespace().collect();
+        let parts: Vec<&str> = line.split_whitespace().collect();
         if parts.is_empty() {
             return Err(ProtocolError::ParseError("Empty command".to_string()));
         }
@@ -540,7 +540,7 @@ impl AsciiProtocol {
 
             // Check if this is a VALUE response that needs data
             if line.starts_with("VALUE ") {
-                let parts: Vec<&str> = line.trim().split_whitespace().collect();
+                let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() >= 4 {
                     let bytes = parts[3].parse::<usize>().map_err(|_| {
                         ProtocolError::ParseError("Invalid bytes in VALUE response".to_string())
@@ -569,7 +569,7 @@ impl AsciiProtocol {
             }
 
             // Check for end conditions
-            let line_trimmed = line.trim();
+        let line_trimmed = line.trim();
             if line_trimmed == "END"
                 || line_trimmed == "STORED"
                 || line_trimmed == "NOT_STORED"
@@ -582,7 +582,7 @@ impl AsciiProtocol {
                 || line_trimmed.starts_with("CLIENT_ERROR")
                 || line_trimmed.starts_with("SERVER_ERROR")
                 || line_trimmed.starts_with("VERSION ")
-                || line_trimmed.parse::<u64>().is_ok()
+            || line_trimmed.parse::<u64>().is_ok()
             // INCR/DECR response
             {
                 break;

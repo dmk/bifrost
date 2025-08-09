@@ -28,7 +28,7 @@ impl Strategy for LeastLatencyStrategy {
     async fn select_backend<'a>(
         &self,
         backends: &'a [Box<dyn Backend>],
-    ) -> Option<&'a Box<dyn Backend>> {
+    ) -> Option<&'a dyn Backend> {
         if backends.is_empty() {
             return None;
         }
@@ -60,7 +60,7 @@ impl Strategy for LeastLatencyStrategy {
             }
         }
 
-        backends.get(best_index)
+        backends.get(best_index).map(|b| b.as_ref())
     }
 
     fn name(&self) -> &str {

@@ -32,7 +32,7 @@ pub trait Backend: Send + Sync {
 /// Optimize TCP socket for low latency
 pub fn optimize_socket_for_latency(stream: &TcpStream) {
     let _ = stream.set_nodelay(true);
-    let socket_ref = socket2::SockRef::try_from(stream).unwrap();
+    let socket_ref = socket2::SockRef::from(stream);
     let _ = socket_ref.set_reuse_address(true);
     let _ = socket_ref.set_send_buffer_size(32768);
     let _ = socket_ref.set_recv_buffer_size(32768);

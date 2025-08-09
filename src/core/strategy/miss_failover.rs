@@ -29,10 +29,10 @@ impl Strategy for MissFailoverStrategy {
     async fn select_backend<'a>(
         &self,
         backends: &'a [Box<dyn Backend>],
-    ) -> Option<&'a Box<dyn Backend>> {
+    ) -> Option<&'a dyn Backend> {
         // For compatibility with regular pools, just return the first backend
         // The real concurrent logic is implemented in ConcurrentPool
-        backends.first()
+        backends.first().map(|b| b.as_ref())
     }
 
     fn name(&self) -> &str {

@@ -69,7 +69,7 @@ impl Pool for BasicPool {
             .await
             .ok_or(PoolError::NoBackendsAvailable)?;
 
-        Ok(selected.as_ref())
+        Ok(selected)
     }
 
     fn name(&self) -> &str {

@@ -35,7 +35,7 @@ async fn mock_memcached_backend(mut stream: TcpStream) {
             "ERROR unknown command\r\n"
         };
 
-        if let Err(_) = stream.write_all(response.as_bytes()).await {
+        if (stream.write_all(response.as_bytes()).await).is_err() {
             break;
         }
     }

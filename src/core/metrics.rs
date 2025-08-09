@@ -2,8 +2,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
+use async_trait::async_trait;
 
 /// Core trait for backend metrics collection
+#[async_trait]
 pub trait BackendMetrics: Send + Sync {
     /// Record a successful operation with its latency
     fn record_success(&self, latency: Duration);
@@ -24,7 +26,7 @@ pub trait BackendMetrics: Send + Sync {
     fn record_connection_failure(&self);
 
     /// Get current metrics snapshot
-    fn get_snapshot(&self) -> impl std::future::Future<Output = MetricsSnapshot> + Send;
+    async fn get_snapshot(&self) -> MetricsSnapshot;
 
     /// Reset all metrics (useful for testing)
     fn reset(&self);
@@ -102,6 +104,7 @@ impl AtomicBackendMetrics {
     }
 }
 
+#[async_trait]
 impl BackendMetrics for AtomicBackendMetrics {
     fn record_success(&self, latency: Duration) {
         self.total_requests.fetch_add(1, Ordering::Relaxed);
@@ -160,8 +163,7 @@ impl BackendMetrics for AtomicBackendMetrics {
         self.connection_failures.fetch_add(1, Ordering::Relaxed);
     }
 
-    fn get_snapshot(&self) -> impl std::future::Future<Output = MetricsSnapshot> + Send {
-        async move {
+    async fn get_snapshot(&self) -> MetricsSnapshot {
         let total = self.total_requests.load(Ordering::Relaxed);
         let successes = self.successful_requests.load(Ordering::Relaxed);
 
@@ -200,7 +202,6 @@ impl BackendMetrics for AtomicBackendMetrics {
             current_connections: self.current_connections.load(Ordering::Relaxed),
             success_rate,
             last_request_time,
-        }
         }
     }
 
@@ -358,7 +359,7 @@ mod tests {
         let p99 = tracker.percentile_latency_ms(99.0);
 
         assert!((avg - 50.5).abs() < 1.0); // Should be around 50.5ms
-        assert!(p95 >= 90.0 && p95 <= 100.0); // Should be around 95ms
-        assert!(p99 >= 95.0 && p99 <= 100.0); // Should be around 99ms
+        assert!((90.0..=100.0).contains(&p95)); // Should be around 95ms
+        assert!((95.0..=100.0).contains(&p99)); // Should be around 99ms
     }
 }

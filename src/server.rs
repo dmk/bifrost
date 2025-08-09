@@ -13,7 +13,7 @@ use tracing::{debug, error, info};
 /// Optimize client socket for low latency (same as backend optimization)
 fn optimize_client_socket(stream: &TcpStream) {
     let _ = stream.set_nodelay(true);
-    let socket_ref = socket2::SockRef::try_from(stream).unwrap();
+    let socket_ref = socket2::SockRef::from(stream);
     let _ = socket_ref.set_reuse_address(true);
     let _ = socket_ref.set_send_buffer_size(32768);
     let _ = socket_ref.set_recv_buffer_size(32768);
@@ -200,7 +200,7 @@ enum BackendConnection<'a> {
     Direct(TcpStream),
 }
 
-impl<'a> DerefMut for BackendConnection<'a> {
+impl DerefMut for BackendConnection<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         match self {
             BackendConnection::Pooled(conn) => conn.deref_mut(),
@@ -209,7 +209,7 @@ impl<'a> DerefMut for BackendConnection<'a> {
     }
 }
 
-impl<'a> std::ops::Deref for BackendConnection<'a> {
+impl std::ops::Deref for BackendConnection<'_> {
     type Target = TcpStream;
 
     fn deref(&self) -> &Self::Target {
@@ -330,7 +330,7 @@ async fn handle_connection_with_routing(
 }
 
 fn extract_key_from_request(line: &str) -> Option<String> {
-    line.trim().split_whitespace().nth(1).map(String::from)
+    line.split_whitespace().nth(1).map(String::from)
 }
 
 pub async fn proxy_bidirectional(

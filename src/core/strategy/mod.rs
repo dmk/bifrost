@@ -21,7 +21,7 @@ pub trait Strategy: Send + Sync {
     async fn select_backend<'a>(
         &self,
         backends: &'a [Box<dyn Backend>],
-    ) -> Option<&'a Box<dyn Backend>>;
+    ) -> Option<&'a dyn Backend>;
 
     /// Strategy name
     fn name(&self) -> &str;
