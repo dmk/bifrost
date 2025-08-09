@@ -105,7 +105,10 @@ async fn handle_concurrent_pool_request(
 
     match pool.handle_concurrent_request(key, &request_data).await {
         Ok(response) => {
-            debug!("concurrent pool returned response: {} bytes", response.len());
+            debug!(
+                "concurrent pool returned response: {} bytes",
+                response.len()
+            );
             let mut client_stream = client_reader.into_inner();
             client_stream.write_all(&response).await.map_err(|e| {
                 ServerError::IoError(format!("Failed to write response to client: {}", e))
@@ -119,14 +122,12 @@ async fn handle_concurrent_pool_request(
             error!("concurrent pool request failed: {}", e);
             let error_response = b"SERVER_ERROR backend pool error\r\n";
             let mut client_stream = client_reader.into_inner();
-            client_stream
-                .write_all(error_response)
-                .await
-                .map_err(|e| ServerError::IoError(format!("Failed to write error response: {}", e)))?;
-            client_stream
-                .flush()
-                .await
-                .map_err(|e| ServerError::IoError(format!("Failed to flush error response: {}", e)))?;
+            client_stream.write_all(error_response).await.map_err(|e| {
+                ServerError::IoError(format!("Failed to write error response: {}", e))
+            })?;
+            client_stream.flush().await.map_err(|e| {
+                ServerError::IoError(format!("Failed to flush error response: {}", e))
+            })?;
             Ok(())
         }
     }
@@ -140,10 +141,7 @@ async fn handle_stats_command(
 
     let mut response = String::new();
     response.push_str("STAT version 1.0.0\r\n");
-    response.push_str(&format!(
-        "STAT routes {}\r\n",
-        route_table.routes().len()
-    ));
+    response.push_str(&format!("STAT routes {}\r\n", route_table.routes().len()));
 
     let mut unique_pools = HashSet::new();
     let mut unique_backends = HashSet::new();
@@ -166,7 +164,11 @@ async fn handle_stats_command(
             }
             ResolvedTarget::Pool(pool) => {
                 if unique_pools.insert(pool.name().to_string()) {
-                    response.push_str(&format!("STAT pool_{}_backends {}\r\n", pool.name(), pool.backends().len()));
+                    response.push_str(&format!(
+                        "STAT pool_{}_backends {}\r\n",
+                        pool.name(),
+                        pool.backends().len()
+                    ));
                     for backend in pool.backends() {
                         let metrics = backend.metrics().get_snapshot().await;
                         response.push_str(&format!(
@@ -243,9 +245,7 @@ async fn handle_connection_with_routing(
     }
 
     let key = extract_key_from_request(&first_line).unwrap_or_else(|| "default".to_string());
-    let route = route_table
-        .find_route(&key)
-        .ok_or(ServerError::NoRoutes)?;
+    let route = route_table.find_route(&key).ok_or(ServerError::NoRoutes)?;
 
     let mut backend_connection = match &route.target {
         ResolvedTarget::Backend(backend) => {
@@ -268,12 +268,9 @@ async fn handle_connection_with_routing(
                 return handle_concurrent_pool_request(client_reader, pool, &key, &first_line)
                     .await;
             }
-            let selected_backend = pool
-                .select_backend(&key)
-                .await
-                .map_err(|e| {
-                    ServerError::BackendConnectionFailed(format!("Pool selection failed: {}", e))
-                })?;
+            let selected_backend = pool.select_backend(&key).await.map_err(|e| {
+                ServerError::BackendConnectionFailed(format!("Pool selection failed: {}", e))
+            })?;
 
             if selected_backend.uses_connection_pool() {
                 let conn = selected_backend
@@ -297,8 +294,10 @@ async fn handle_connection_with_routing(
         .map_err(|e| {
             ServerError::IoError(format!("failed to write first line to backend: {}", e))
         })?;
-    backend_connection.flush().await.map_err(|e| ServerError::IoError(format!("failed to flush backend: {}", e)))?;
-
+    backend_connection
+        .flush()
+        .await
+        .map_err(|e| ServerError::IoError(format!("failed to flush backend: {}", e)))?;
 
     let buffered_data = client_reader.buffer();
     if !buffered_data.is_empty() {
@@ -308,7 +307,10 @@ async fn handle_connection_with_routing(
             .map_err(|e| {
                 ServerError::IoError(format!("failed to forward initial buffer: {}", e))
             })?;
-        backend_connection.flush().await.map_err(|e| ServerError::IoError(format!("failed to flush backend: {}", e)))?;
+        backend_connection
+            .flush()
+            .await
+            .map_err(|e| ServerError::IoError(format!("failed to flush backend: {}", e)))?;
     }
 
     let mut client_stream = client_reader.into_inner();

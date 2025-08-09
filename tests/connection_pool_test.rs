@@ -167,8 +167,12 @@ routes:
         Ok(rt) => rt,
         Err(e) => {
             let msg = e.to_string();
-            if msg.contains("Connection pool creation failed") || msg.contains("Connection refused") {
-                println!("⚠️  Skipping route table build test - memcached server not available: {}", msg);
+            if msg.contains("Connection pool creation failed") || msg.contains("Connection refused")
+            {
+                println!(
+                    "⚠️  Skipping route table build test - memcached server not available: {}",
+                    msg
+                );
                 return;
             }
             panic!("Failed to build route table: {}", msg);

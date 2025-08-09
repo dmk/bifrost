@@ -36,7 +36,10 @@ impl bb8::ManageConnection for MemcachedConnectionManager {
         // This is a lightweight, non-blocking way to detect a closed or broken connection.
         match conn.try_write(&[]) {
             Ok(_) => {
-                tracing::trace!("bb8 connection validation passed for {}", self.server_address);
+                tracing::trace!(
+                    "bb8 connection validation passed for {}",
+                    self.server_address
+                );
                 Ok(())
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -44,7 +47,11 @@ impl bb8::ManageConnection for MemcachedConnectionManager {
                 Ok(())
             }
             Err(e) => {
-                tracing::debug!("bb8 connection validation failed for {}: {}", self.server_address, e);
+                tracing::debug!(
+                    "bb8 connection validation failed for {}: {}",
+                    self.server_address,
+                    e
+                );
                 Err(e)
             }
         }
@@ -61,13 +68,20 @@ impl bb8::ManageConnection for MemcachedConnectionManager {
         // Try a very lightweight check: see if the socket is readable without blocking
         match conn.try_read(&mut [0u8; 0]) {
             Ok(0) => {
-                tracing::debug!("bb8 detected broken connection to {} (read 0 bytes)", self.server_address);
+                tracing::debug!(
+                    "bb8 detected broken connection to {} (read 0 bytes)",
+                    self.server_address
+                );
                 true
             }
             Ok(_) => false,
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => false,
             Err(e) => {
-                tracing::debug!("bb8 detected broken connection to {}: {}", self.server_address, e);
+                tracing::debug!(
+                    "bb8 detected broken connection to {}: {}",
+                    self.server_address,
+                    e
+                );
                 true
             }
         }

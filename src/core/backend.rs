@@ -23,7 +23,9 @@ pub trait Backend: Send + Sync {
     fn uses_connection_pool(&self) -> bool;
 
     /// Get a pooled stream - validates pool health and returns a connection
-    async fn get_pooled_stream(&self) -> Result<bb8::PooledConnection<'_, MemcachedConnectionManager>, BackendError>;
+    async fn get_pooled_stream(
+        &self,
+    ) -> Result<bb8::PooledConnection<'_, MemcachedConnectionManager>, BackendError>;
 
     /// Get metrics for this backend
     fn metrics(&self) -> Arc<AtomicBackendMetrics>;
@@ -39,8 +41,8 @@ pub fn optimize_socket_for_latency(stream: &TcpStream) {
     // Enable TCP keepalive to avoid idle disconnects and detect dead peers
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
-        use std::time::Duration;
         use socket2::TcpKeepalive;
+        use std::time::Duration;
         let keepalive = TcpKeepalive::new()
             .with_time(Duration::from_secs(30))
             .with_interval(Duration::from_secs(10))
@@ -103,7 +105,10 @@ impl Backend for MemcachedBackend {
     async fn connect(&self) -> Result<TcpStream, BackendError> {
         use tokio::time::timeout;
 
-        tracing::debug!("[{}] creating direct connection (not using pool)", self.name);
+        tracing::debug!(
+            "[{}] creating direct connection (not using pool)",
+            self.name
+        );
         self.metrics.record_connection_attempt();
         let start = Instant::now();
         let connect_timeout = Duration::from_millis(5000);
@@ -171,7 +176,10 @@ impl Backend for MemcachedBackend {
                 }
             }
         } else {
-            tracing::warn!("[{}] no connection pool configured; should not happen", self.name);
+            tracing::warn!(
+                "[{}] no connection pool configured; should not happen",
+                self.name
+            );
             Err(BackendError::NoConnectionPool)
         }
     }

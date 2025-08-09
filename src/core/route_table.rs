@@ -65,10 +65,7 @@ impl RouteTable {
 
     /// Find the first matching route for a key
     pub fn find_route(&self, key: &str) -> Option<&Route> {
-        self
-            .routes
-            .iter()
-            .find(|route| route.matcher.matches(key))
+        self.routes.iter().find(|route| route.matcher.matches(key))
     }
 
     pub fn routes(&self) -> &[Route] {
@@ -99,7 +96,8 @@ impl RouteTableBuilder {
                 let backend = backends
                     .get(backend_name)
                     .ok_or_else(|| RouteTableError::BackendNotFound(backend_name.clone()))?;
-                pool_backends.push(Box::new(BackendWrapper::new(backend.clone())) as Box<dyn Backend>);
+                pool_backends
+                    .push(Box::new(BackendWrapper::new(backend.clone())) as Box<dyn Backend>);
             }
 
             let strategy = if let Some(strategy_config) = &pool_config.strategy {
@@ -215,12 +213,10 @@ mod tests {
     fn test_route_table_lookup() {
         let routes = vec![Route {
             matcher: Box::new(GlobMatcher::new("user:*".to_string())),
-            target: ResolvedTarget::Backend(Arc::new(
-                crate::core::backend::MemcachedBackend::new(
-                    "test".to_string(),
-                    "127.0.0.1:11211".to_string(),
-                ),
-            )),
+            target: ResolvedTarget::Backend(Arc::new(crate::core::backend::MemcachedBackend::new(
+                "test".to_string(),
+                "127.0.0.1:11211".to_string(),
+            ))),
         }];
         let table = RouteTable::new(routes);
         let route = table.find_route("user:123");

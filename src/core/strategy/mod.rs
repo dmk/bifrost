@@ -4,24 +4,22 @@ use async_trait::async_trait;
 // Re-export all strategy implementations
 pub mod blind_forward;
 pub mod failover;
+pub mod least_latency;
 pub mod miss_failover;
 pub mod round_robin;
-pub mod least_latency;
 
 pub use blind_forward::BlindForwardStrategy;
 pub use failover::FailoverStrategy;
+pub use least_latency::LeastLatencyStrategy;
 pub use miss_failover::MissFailoverStrategy;
 pub use round_robin::RoundRobinStrategy;
-pub use least_latency::LeastLatencyStrategy;
 
 /// Core trait for routing strategies
 #[async_trait]
 pub trait Strategy: Send + Sync {
     /// Select a backend for the given request
-    async fn select_backend<'a>(
-        &self,
-        backends: &'a [Box<dyn Backend>],
-    ) -> Option<&'a dyn Backend>;
+    async fn select_backend<'a>(&self, backends: &'a [Box<dyn Backend>])
+        -> Option<&'a dyn Backend>;
 
     /// Strategy name
     fn name(&self) -> &str;

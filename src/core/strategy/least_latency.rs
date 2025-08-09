@@ -51,7 +51,11 @@ impl Strategy for LeastLatencyStrategy {
             let p95_raw = snapshot.p95_latency_ms;
             let avg = snapshot.average_latency_ms;
             // If we have no samples yet, treat as 0 to prefer warming up fairly
-            let p95 = if p95_raw <= 0.0 { avg.max(0.0) } else { p95_raw };
+            let p95 = if p95_raw <= 0.0 {
+                avg.max(0.0)
+            } else {
+                p95_raw
+            };
 
             if p95 < best_p95 || (p95 == best_p95 && avg < best_avg) {
                 best_index = idx;
@@ -98,5 +102,3 @@ mod tests {
         assert_eq!(selected.name(), "b1");
     }
 }
-
-

@@ -569,7 +569,7 @@ impl AsciiProtocol {
             }
 
             // Check for end conditions
-        let line_trimmed = line.trim();
+            let line_trimmed = line.trim();
             if line_trimmed == "END"
                 || line_trimmed == "STORED"
                 || line_trimmed == "NOT_STORED"
@@ -582,7 +582,7 @@ impl AsciiProtocol {
                 || line_trimmed.starts_with("CLIENT_ERROR")
                 || line_trimmed.starts_with("SERVER_ERROR")
                 || line_trimmed.starts_with("VERSION ")
-            || line_trimmed.parse::<u64>().is_ok()
+                || line_trimmed.parse::<u64>().is_ok()
             // INCR/DECR response
             {
                 break;

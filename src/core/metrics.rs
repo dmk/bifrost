@@ -1,8 +1,8 @@
+use async_trait::async_trait;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use async_trait::async_trait;
 
 /// Core trait for backend metrics collection
 #[async_trait]
@@ -273,7 +273,8 @@ impl LatencyTracker {
             return 0.0;
         }
 
-        let total_ms: f64 = self.latencies
+        let total_ms: f64 = self
+            .latencies
             .iter()
             .map(|d| d.as_secs_f64() * 1000.0)
             .sum();
