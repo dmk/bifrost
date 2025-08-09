@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::core::connection_pool::MemcachedConnectionManager;
 use crate::core::metrics::BackendMetrics;
-use crate::core::protocols::AsciiProtocol;
+use crate::core::protocols::AsciiProtocol; // No AsciiCommand usage here
 use crate::core::route_table::ResolvedTarget;
 use crate::core::{Protocol, RouteTable, RouteTableBuilder};
 use std::collections::HashSet;
