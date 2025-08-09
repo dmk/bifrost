@@ -201,6 +201,8 @@ pub enum RouteTableError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{BackendConfig, Config, ListenerConfig, PoolConfig, RouteConfig, RouteTarget};
+    use std::collections::HashMap;
 
     #[test]
     fn test_glob_matcher() {
@@ -223,5 +225,72 @@ mod tests {
         assert!(route.is_some());
         let route = table.find_route("cache:123");
         assert!(route.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_build_from_config_success_backend_and_pool() {
+        let mut listeners = HashMap::new();
+        listeners.insert("main".to_string(), ListenerConfig { bind: "127.0.0.1:0".to_string() });
+
+        let mut backends = HashMap::new();
+        backends.insert(
+            "b1".to_string(),
+            BackendConfig { backend_type: "memcached".to_string(), server: "127.0.0.1:11211".to_string(), connection_pool: None },
+        );
+
+        let mut pools = HashMap::new();
+        pools.insert(
+            "p1".to_string(),
+            PoolConfig { backends: vec!["b1".into()], strategy: None },
+        );
+
+        let mut routes = HashMap::new();
+        routes.insert(
+            "r1".to_string(),
+            RouteConfig { matcher: "*".into(), target: RouteTarget::Backend { backend: "b1".into() } },
+        );
+        routes.insert(
+            "r2".to_string(),
+            RouteConfig { matcher: "*".into(), target: RouteTarget::Pool { pool: "p1".into() } },
+        );
+
+        let cfg = Config { listeners, backends, pools, routes };
+        let table = RouteTableBuilder::build_from_config(&cfg).await.unwrap();
+        assert!(table.routes().len() >= 2);
+    }
+
+    #[tokio::test]
+    async fn test_build_from_config_unknown_backend_in_pool() {
+        let mut listeners = HashMap::new();
+        listeners.insert("main".to_string(), ListenerConfig { bind: "127.0.0.1:0".to_string() });
+
+        let backends = HashMap::new();
+        let mut pools = HashMap::new();
+        pools.insert("p1".to_string(), PoolConfig { backends: vec!["missing".into()], strategy: None });
+        let routes = HashMap::new();
+        let cfg = Config { listeners, backends, pools, routes };
+        let err = RouteTableBuilder::build_from_config(&cfg).await.err().unwrap();
+        match err { RouteTableError::BackendCreationFailed(_) | RouteTableError::BackendNotFound(_) => (), _ => panic!("expected backend-related error") }
+    }
+
+    #[tokio::test]
+    async fn test_build_from_config_unknown_pool_in_route() {
+        let mut listeners = HashMap::new();
+        listeners.insert("main".to_string(), ListenerConfig { bind: "127.0.0.1:0".to_string() });
+
+        let mut backends = HashMap::new();
+        backends.insert(
+            "b1".to_string(),
+            BackendConfig { backend_type: "memcached".to_string(), server: "127.0.0.1:11211".to_string(), connection_pool: None },
+        );
+        let pools = HashMap::new();
+        let mut routes = HashMap::new();
+        routes.insert(
+            "r1".to_string(),
+            RouteConfig { matcher: "*".into(), target: RouteTarget::Pool { pool: "missing".into() } },
+        );
+        let cfg = Config { listeners, backends, pools, routes };
+        let err = RouteTableBuilder::build_from_config(&cfg).await.err().unwrap();
+        match err { RouteTableError::PoolNotFound(_) => (), _ => panic!("expected pool not found") }
     }
 }

@@ -90,3 +90,35 @@ impl bb8::ManageConnection for MemcachedConnectionManager {
 
 /// Type alias for our connection pool.
 pub type MemcachedPool = Pool<MemcachedConnectionManager>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bb8::ManageConnection;
+    use tokio::net::TcpListener;
+
+    #[tokio::test]
+    async fn test_manager_connect_and_validate() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Accept connections in background to complete handshake
+        tokio::spawn(async move {
+            loop {
+                if let Ok((stream, _)) = listener.accept().await {
+                    // Keep stream open briefly
+                    let _ = tokio::spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                        drop(stream);
+                    });
+                }
+            }
+        });
+
+        let manager = MemcachedConnectionManager::new(addr.to_string());
+        let mut conn = manager.connect().await.unwrap();
+        manager.is_valid(&mut conn).await.unwrap();
+        // has_broken should usually be false immediately after connect
+        assert!(!manager.has_broken(&mut conn));
+    }
+}

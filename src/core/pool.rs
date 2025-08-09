@@ -349,8 +349,10 @@ async fn read_memcached_response(stream: &mut TcpStream) -> Result<Vec<u8>, std:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{BackendConfig, ConnectionPoolConfig};
     use crate::core::backend::MemcachedBackend;
     use crate::core::strategy::BlindForwardStrategy;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
     #[tokio::test]
     async fn test_basic_pool_creation() {
@@ -453,5 +455,125 @@ mod tests {
         assert!(pool.has_healthy_backends());
         assert_eq!(pool.strategy().name(), "miss_failover");
         assert_eq!(pool.timeout_ms, 500);
+    }
+
+    async fn start_memcached_like_server(responder: &'static str, delay_ms: u64) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        tokio::spawn(async move {
+            loop {
+                if let Ok((mut s, _)) = listener.accept().await {
+                    tokio::spawn(async move {
+                        // Read one line request
+                        let mut r = BufReader::new(&mut s);
+                        let mut line = String::new();
+                        let _ = r.read_line(&mut line).await;
+                        // Optional delay
+                        if delay_ms > 0 {
+                            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                        }
+                        // Respond
+                        s.write_all(responder.as_bytes()).await.ok();
+                        s.flush().await.ok();
+                    });
+                }
+            }
+        });
+        addr
+    }
+
+    async fn mk_backend_with_pool(name: &str, addr: String) -> Box<dyn Backend> {
+        let cfg = BackendConfig {
+            backend_type: "memcached".to_string(),
+            server: addr,
+            connection_pool: Some(ConnectionPoolConfig {
+                min_connections: 1,
+                max_connections: 2,
+                connection_timeout_secs: 1,
+                ..Default::default()
+            }),
+        };
+        let b = MemcachedBackend::from_config(name.to_string(), &cfg)
+            .await
+            .unwrap();
+        Box::new(b) as Box<dyn Backend>
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_pool_returns_first_hit() {
+        // Backend A: MISS (END), slower
+        let addr_a = start_memcached_like_server("END\r\n", 50).await;
+        // Backend B: HIT (VALUE), faster
+        let addr_b = start_memcached_like_server("VALUE k 0 4\r\nDATA\r\nEND\r\n", 0).await;
+
+        let backends = vec![
+            mk_backend_with_pool("a", addr_a).await,
+            mk_backend_with_pool("b", addr_b).await,
+        ];
+        let pool =
+            ConcurrentPool::new("cp".into(), backends, Box::new(BlindForwardStrategy::new()))
+                .with_timeout(500);
+
+        let resp = pool
+            .handle_concurrent_request("k", b"GET k\r\n")
+            .await
+            .unwrap();
+        assert!(String::from_utf8_lossy(&resp).contains("VALUE"));
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_pool_all_miss_returns_end() {
+        let addr_a = start_memcached_like_server("END\r\n", 0).await;
+        let addr_b = start_memcached_like_server("END\r\n", 0).await;
+        let backends = vec![
+            mk_backend_with_pool("a", addr_a).await,
+            mk_backend_with_pool("b", addr_b).await,
+        ];
+        let pool =
+            ConcurrentPool::new("cp".into(), backends, Box::new(BlindForwardStrategy::new()))
+                .with_timeout(300);
+        let resp = pool
+            .handle_concurrent_request("k", b"GET k\r\n")
+            .await
+            .unwrap();
+        assert_eq!(&resp, b"END\r\n");
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_pool_timeout_returns_end() {
+        // Servers that never respond (hold connection open)
+        let listener1 = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr1 = listener1.local_addr().unwrap().to_string();
+        tokio::spawn(async move {
+            loop {
+                if let Ok((mut s, _)) = listener1.accept().await {
+                    let _ = tokio::spawn(async move {
+                        let _ = BufReader::new(&mut s).read_line(&mut String::new()).await;
+                    });
+                }
+            }
+        });
+        let listener2 = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr2 = listener2.local_addr().unwrap().to_string();
+        tokio::spawn(async move {
+            loop {
+                if let Ok((s, _)) = listener2.accept().await {
+                    drop(s);
+                }
+            }
+        });
+
+        let backends = vec![
+            mk_backend_with_pool("a", addr1).await,
+            mk_backend_with_pool("b", addr2).await,
+        ];
+        let pool =
+            ConcurrentPool::new("cp".into(), backends, Box::new(BlindForwardStrategy::new()))
+                .with_timeout(100);
+        let resp = pool
+            .handle_concurrent_request("k", b"GET k\r\n")
+            .await
+            .unwrap();
+        assert_eq!(&resp, b"END\r\n");
     }
 }

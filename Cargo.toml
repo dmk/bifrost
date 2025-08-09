@@ -29,3 +29,6 @@ tracing-appender = "0.2"
 
 # CLI
 clap = { version = "4.0", features = ["derive"] }
+
+[dev-dependencies]
+uuid = { version = "1", features = ["v4"] }
