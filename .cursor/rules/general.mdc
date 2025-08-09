@@ -1,0 +1,8 @@
+---
+description: General info about the project
+globs:
+alwaysApply: true
+---
+Bifrost is an async Memcached proxy written in Rust on Tokio. It listens for client connections, routes requests by key using a fast, immutable RouteTable, and forwards to Memcached backends (directly or via bb8 connection pools). Core modules: src/server.rs (accept loop, routing, bidirectional proxy), core/backend.rs (Memcached backend + bb8 pool), core/pool.rs (basic and concurrent miss-failover pools), core/strategy/* (selection strategies), core/protocols/ascii.rs (ASCII protocol parsing/forwarding), core/metrics.rs (atomic counters and lightweight latency tracking). Logging is non-blocking via tracing_appender, with hot-path logs downgraded to debug; configuration is YAML-driven (config.rs). Benchmarks live in tests/benchmark/ and use memtier via Docker.
+
+Performance focus: minimize tail latency and contention in hot paths. Recent changes removed synchronous logging overhead, replaced metrics’ per-request task spawns with best-effort try_write(), made concurrent pool return immediately on first hit (cancelling the rest), and changed failover selection to avoid live connects. Remaining considerations: per-connection checkout currently holds a pooled connection for the client session (can cause pool waits under heavy concurrency), and copy_bidirectional ties the lifetime of backend connections to client sessions; adjust pool sizing or evolve toward per-request checkout if needed.
