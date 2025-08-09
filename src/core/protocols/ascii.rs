@@ -1241,4 +1241,359 @@ mod tests {
         assert_eq!(&bytes, b"END\r\n");
         let _ = server.await;
     }
+
+    #[tokio::test]
+    async fn test_forward_request_set_roundtrip_with_data() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let mut backend = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (mut backend_peer, _) = listener.accept().await.unwrap();
+
+        // Backend validates request line and data block, then returns STORED
+        let server = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let expected = b"SET key 0 0 4\r\n";
+            let mut req_line = vec![0u8; expected.len()];
+            backend_peer.read_exact(&mut req_line).await.unwrap();
+            assert_eq!(&req_line, expected);
+
+            let mut data = [0u8; 4];
+            backend_peer.read_exact(&mut data).await.unwrap();
+            assert_eq!(&data, b"DATA");
+            let mut crlf = [0u8; 2];
+            backend_peer.read_exact(&mut crlf).await.unwrap();
+            assert_eq!(&crlf, b"\r\n");
+
+            backend_peer.write_all(b"STORED\r\n").await.unwrap();
+        });
+
+        let proto = AsciiProtocol::new();
+        let cmd = AsciiCommand::Set {
+            key: "key".into(),
+            flags: 0,
+            exptime: 0,
+            bytes: 4,
+            noreply: false,
+        };
+        let bytes = proto
+            .forward_request(&cmd, b"DATA", &mut backend)
+            .await
+            .unwrap();
+        assert_eq!(&bytes, b"STORED\r\n");
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn test_forward_request_set_noreply_does_not_wait_for_response() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let mut backend = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (mut backend_peer, _) = listener.accept().await.unwrap();
+
+        // Backend just consumes the request; no response is sent
+        let server = tokio::spawn(async move {
+            use tokio::io::AsyncReadExt;
+            let expected = b"SET key 0 0 4\r\n";
+            let mut req_line = vec![0u8; expected.len()];
+            backend_peer.read_exact(&mut req_line).await.unwrap();
+            assert_eq!(&req_line, expected);
+            let mut data = [0u8; 4];
+            backend_peer.read_exact(&mut data).await.unwrap();
+            assert_eq!(&data, b"DATA");
+            let mut crlf = [0u8; 2];
+            backend_peer.read_exact(&mut crlf).await.unwrap();
+            assert_eq!(&crlf, b"\r\n");
+        });
+
+        let proto = AsciiProtocol::new();
+        let cmd = AsciiCommand::Set {
+            key: "key".into(),
+            flags: 0,
+            exptime: 0,
+            bytes: 4,
+            noreply: true,
+        };
+        let bytes = proto
+            .forward_request(&cmd, b"DATA", &mut backend)
+            .await
+            .unwrap();
+        assert!(bytes.is_empty());
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn test_forward_request_incr_numeric_response() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let mut backend = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (mut backend_peer, _) = listener.accept().await.unwrap();
+
+        // Backend validates request and returns numeric response
+        let server = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let expected = b"INCR k 2\r\n";
+            let mut req_line = vec![0u8; expected.len()];
+            backend_peer.read_exact(&mut req_line).await.unwrap();
+            assert_eq!(&req_line, expected);
+            backend_peer.write_all(b"123\r\n").await.unwrap();
+            backend_peer.flush().await.unwrap();
+        });
+
+        let proto = AsciiProtocol::new();
+        let cmd = AsciiCommand::Incr {
+            key: "k".into(),
+            value: 2,
+            noreply: false,
+        };
+        let bytes = proto
+            .forward_request(&cmd, &[], &mut backend)
+            .await
+            .unwrap();
+        assert_eq!(&bytes, b"123\r\n");
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn test_read_response_stats_multiline() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (mut backend_peer, _) = listener.accept().await.unwrap();
+
+        let backend_task = tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            backend_peer
+                .write_all(b"STAT a 1\r\nSTAT b 2\r\nEND\r\n")
+                .await
+                .unwrap();
+            backend_peer.flush().await.unwrap();
+        });
+
+        let proto = AsciiProtocol::new();
+        let bytes = proto.read_response(&mut client).await.unwrap();
+        assert_eq!(&bytes, b"STAT a 1\r\nSTAT b 2\r\nEND\r\n");
+        let _ = backend_task.await;
+    }
+
+    #[tokio::test]
+    async fn test_handle_connection_quit_does_not_forward() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::time::Duration;
+
+        // Prepare client side
+        let client_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client_addr = client_listener.local_addr().unwrap();
+        let client_peer_task =
+            tokio::spawn(async move { tokio::net::TcpStream::connect(client_addr).await.unwrap() });
+        let (client_for_handler, _) = client_listener.accept().await.unwrap();
+        let mut client_peer = client_peer_task.await.unwrap();
+
+        // Prepare backend side
+        let backend_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let backend_addr = backend_listener.local_addr().unwrap();
+        let backend_for_handler = tokio::net::TcpStream::connect(backend_addr).await.unwrap();
+        let (mut backend_peer, _) = backend_listener.accept().await.unwrap();
+
+        let proto = AsciiProtocol::new();
+        let run = tokio::spawn(async move {
+            proto
+                .handle_connection(client_for_handler, backend_for_handler)
+                .await
+                .unwrap();
+        });
+
+        // Send QUIT to the handler
+        client_peer.write_all(b"QUIT\r\n").await.unwrap();
+        client_peer.flush().await.unwrap();
+        drop(client_peer);
+
+        // Backend connection should be closed without receiving any data
+        let mut buf = [0u8; 16];
+        let n = tokio::time::timeout(Duration::from_secs(1), backend_peer.read(&mut buf))
+            .await
+            .expect("timed out waiting for backend EOF")
+            .unwrap();
+        assert_eq!(n, 0, "backend should see EOF and no data for QUIT");
+
+        // Handler should complete promptly
+        let _ = tokio::time::timeout(Duration::from_secs(1), run)
+            .await
+            .unwrap();
+    }
+
+    #[test]
+    fn test_protocol_name_ascii() {
+        let p = AsciiProtocol::new();
+        assert_eq!(p.name(), "ascii");
+    }
+
+    #[tokio::test]
+    async fn test_parse_request_missing_data_block_errors() {
+        use tokio::io::AsyncWriteExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client_task = tokio::spawn(async move {
+            let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+            s.write_all(b"SET key 0 0 4\r\nDA").await.unwrap();
+            s.shutdown().await.unwrap();
+        });
+        let (server_stream, _) = listener.accept().await.unwrap();
+        let _ = client_task.await;
+        let proto = AsciiProtocol::new();
+        let mut reader = BufReader::new(server_stream);
+        let err = proto.parse_request(&mut reader).await.err().unwrap();
+        match err {
+            ProtocolError::ParseError(msg) => assert!(msg.contains("Failed to read data block")),
+            _ => panic!("expected ParseError for missing data block"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_parse_request_missing_trailing_crlf_errors() {
+        use tokio::io::AsyncWriteExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client_task = tokio::spawn(async move {
+            let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+            s.write_all(b"SET key 0 0 4\r\nDATA").await.unwrap();
+            s.shutdown().await.unwrap();
+        });
+        let (server_stream, _) = listener.accept().await.unwrap();
+        let _ = client_task.await;
+        let proto = AsciiProtocol::new();
+        let mut reader = BufReader::new(server_stream);
+        let err = proto.parse_request(&mut reader).await.err().unwrap();
+        match err {
+            ProtocolError::ParseError(msg) => assert!(msg.contains("Failed to read trailing CRLF")),
+            _ => panic!("expected ParseError for missing trailing CRLF"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_read_response_backend_closed_errors() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (backend_peer, _) = listener.accept().await.unwrap();
+        drop(backend_peer);
+        let proto = AsciiProtocol::new();
+        let err = proto.read_response(&mut client).await.err().unwrap();
+        match err {
+            ProtocolError::ForwardingFailed(msg) => {
+                assert!(msg.contains("Backend closed connection"))
+            }
+            _ => panic!("expected ForwardingFailed for closed backend"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_read_response_invalid_value_bytes_errors() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (mut backend_peer, _) = listener.accept().await.unwrap();
+        let backend_task = tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            backend_peer.write_all(b"VALUE k 0 X\r\n").await.unwrap();
+            backend_peer.shutdown().await.unwrap();
+        });
+        let proto = AsciiProtocol::new();
+        let err = proto.read_response(&mut client).await.err().unwrap();
+        let _ = backend_task.await;
+        match err {
+            ProtocolError::ParseError(msg) => {
+                assert!(msg.contains("Invalid bytes in VALUE response"))
+            }
+            _ => panic!("expected ParseError for invalid VALUE bytes"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_forward_request_delete_noreply() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let mut backend = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (mut backend_peer, _) = listener.accept().await.unwrap();
+        let server = tokio::spawn(async move {
+            use tokio::io::AsyncReadExt;
+            let mut buf = [0u8; 64];
+            let n = backend_peer.read(&mut buf).await.unwrap();
+            let s = String::from_utf8_lossy(&buf[..n]).to_string();
+            assert_eq!(s, "DELETE key noreply\r\n");
+        });
+        let proto = AsciiProtocol::new();
+        let cmd = AsciiCommand::Delete {
+            key: "key".into(),
+            noreply: true,
+        };
+        let bytes = proto
+            .forward_request(&cmd, &[], &mut backend)
+            .await
+            .unwrap();
+        assert!(bytes.is_empty());
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn test_forward_request_flush_all_with_exptime_noreply() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let mut backend = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (mut backend_peer, _) = listener.accept().await.unwrap();
+        let server = tokio::spawn(async move {
+            use tokio::io::AsyncReadExt;
+            let mut buf = [0u8; 64];
+            let n = backend_peer.read(&mut buf).await.unwrap();
+            let s = String::from_utf8_lossy(&buf[..n]).to_string();
+            assert_eq!(s, "FLUSH_ALL 10 noreply\r\n");
+        });
+        let proto = AsciiProtocol::new();
+        let cmd = AsciiCommand::FlushAll {
+            exptime: Some(10),
+            noreply: true,
+        };
+        let bytes = proto
+            .forward_request(&cmd, &[], &mut backend)
+            .await
+            .unwrap();
+        assert!(bytes.is_empty());
+        let _ = server.await;
+    }
+
+    #[tokio::test]
+    async fn test_forward_request_stats_with_args() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let mut backend = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (mut backend_peer, _) = listener.accept().await.unwrap();
+        let server = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let mut buf = [0u8; 64];
+            let n = backend_peer.read(&mut buf).await.unwrap();
+            let s = String::from_utf8_lossy(&buf[..n]).to_string();
+            assert_eq!(s, "STATS items slabs\r\n");
+            backend_peer.write_all(b"END\r\n").await.unwrap();
+        });
+        let proto = AsciiProtocol::new();
+        let cmd = AsciiCommand::Stats {
+            args: Some("items slabs".into()),
+        };
+        let bytes = proto
+            .forward_request(&cmd, &[], &mut backend)
+            .await
+            .unwrap();
+        assert_eq!(&bytes, b"END\r\n");
+        let _ = server.await;
+    }
+
+    #[test]
+    fn test_stats_args_join_multiple_words() {
+        let result = AsciiCommand::parse("STATS items slabs\r\n").unwrap();
+        assert_eq!(
+            result,
+            AsciiCommand::Stats {
+                args: Some("items slabs".to_string())
+            }
+        );
+    }
 }

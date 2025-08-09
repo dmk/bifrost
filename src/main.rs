@@ -67,8 +67,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
     use std::fs::File;
+    use std::io::Write;
     use std::path::PathBuf;
 
     fn write_temp_config() -> PathBuf {
@@ -91,8 +91,37 @@ routes:
     async fn test_run_with_config_shutdown_quickly() {
         init_logging();
         let path = write_temp_config();
-        let res = run_with_config_path_and_shutdown(path.to_str().unwrap(), tokio::time::sleep(std::time::Duration::from_millis(50))).await;
+        let res = run_with_config_path_and_shutdown(
+            path.to_str().unwrap(),
+            tokio::time::sleep(std::time::Duration::from_millis(50)),
+        )
+        .await;
         assert!(res.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_run_with_config_returns_error_when_server_start_fails() {
+        init_logging();
+        // Write a config with an invalid bind address to force server.start() to return Err
+        let mut path = std::env::temp_dir();
+        path.push(format!("bifrost_test_bad_{}.yaml", uuid::Uuid::new_v4()));
+        let mut f = File::create(&path).unwrap();
+        let yaml = r#"
+listeners:
+  bad: { bind: "256.256.256.256:12345" }
+backends:
+  b1: { type: "memcached", server: "127.0.0.1:0" }
+routes:
+  r1: { matcher: "*", backend: "b1" }
+"#;
+        f.write_all(yaml.as_bytes()).unwrap();
+
+        let res = run_with_config_path_and_shutdown(
+            path.to_str().unwrap(),
+            tokio::time::sleep(std::time::Duration::from_millis(200)),
+        )
+        .await;
+        assert!(res.is_err());
     }
 
     #[test]

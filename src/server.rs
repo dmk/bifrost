@@ -365,14 +365,14 @@ pub enum ServerError {
 
 #[cfg(test)]
 mod tests {
+    use super::{BifrostServer, ServerError};
+    use crate::config::{Config, ListenerConfig};
     use crate::core::backend::{Backend, BackendError};
     use crate::core::metrics::AtomicBackendMetrics;
     use crate::core::pool::BasicPool;
     use crate::core::protocols::AsciiProtocol;
     use crate::core::route_table::{Matcher, ResolvedTarget, Route, RouteTable};
     use crate::core::strategy::BlindForwardStrategy;
-    use crate::config::{Config, ListenerConfig};
-    use super::{BifrostServer, ServerError};
     use std::sync::Arc;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -631,21 +631,42 @@ mod tests {
     #[tokio::test]
     async fn test_start_no_listeners() {
         // Empty config -> new() ok, start() should return NoListeners immediately
-        let cfg = Config { listeners: std::collections::HashMap::new(), backends: std::collections::HashMap::new(), pools: std::collections::HashMap::new(), routes: std::collections::HashMap::new() };
+        let cfg = Config {
+            listeners: std::collections::HashMap::new(),
+            backends: std::collections::HashMap::new(),
+            pools: std::collections::HashMap::new(),
+            routes: std::collections::HashMap::new(),
+        };
         let server = BifrostServer::new(cfg).await.unwrap();
         let err = server.start().await.err().unwrap();
-        match err { ServerError::NoListeners => (), _ => panic!("expected NoListeners") }
+        match err {
+            ServerError::NoListeners => (),
+            _ => panic!("expected NoListeners"),
+        }
     }
 
     #[tokio::test]
     async fn test_start_bind_failed_invalid_address() {
         // Invalid bind address should fail to bind
         let mut listeners = std::collections::HashMap::new();
-        listeners.insert("bad".into(), ListenerConfig { bind: "256.256.256.256:12345".into() });
-        let cfg = Config { listeners, backends: std::collections::HashMap::new(), pools: std::collections::HashMap::new(), routes: std::collections::HashMap::new() };
+        listeners.insert(
+            "bad".into(),
+            ListenerConfig {
+                bind: "256.256.256.256:12345".into(),
+            },
+        );
+        let cfg = Config {
+            listeners,
+            backends: std::collections::HashMap::new(),
+            pools: std::collections::HashMap::new(),
+            routes: std::collections::HashMap::new(),
+        };
         let server = BifrostServer::new(cfg).await.unwrap();
         let err = server.start().await.err().unwrap();
-        match err { ServerError::BindFailed(_) => (), _ => panic!("expected BindFailed") }
+        match err {
+            ServerError::BindFailed(_) => (),
+            _ => panic!("expected BindFailed"),
+        }
     }
 
     #[tokio::test]
@@ -653,7 +674,8 @@ mod tests {
         // Create connected pair and immediately close client writer to produce EOF
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let client = tokio::spawn(async move { tokio::net::TcpStream::connect(addr).await.unwrap() });
+        let client =
+            tokio::spawn(async move { tokio::net::TcpStream::connect(addr).await.unwrap() });
         let (server_side, _) = listener.accept().await.unwrap();
         let mut client_peer = client.await.unwrap();
         // Close client to make server see empty line
@@ -671,16 +693,28 @@ mod tests {
         // Backend listener for completeness (won't be used)
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        tokio::spawn(async move { let _ = listener.accept().await; });
+        tokio::spawn(async move {
+            let _ = listener.accept().await;
+        });
 
         // Route table with a key that won't match
-        let routes = vec![Route { matcher: Box::new(ExactMatcher { pattern: "matchme".into() }), target: ResolvedTarget::Backend(Arc::new(TestBackend { name: "b".into(), addr: addr.to_string(), metrics: Arc::new(AtomicBackendMetrics::new("b".into())) }) as Arc<dyn Backend>) }];
+        let routes = vec![Route {
+            matcher: Box::new(ExactMatcher {
+                pattern: "matchme".into(),
+            }),
+            target: ResolvedTarget::Backend(Arc::new(TestBackend {
+                name: "b".into(),
+                addr: addr.to_string(),
+                metrics: Arc::new(AtomicBackendMetrics::new("b".into())),
+            }) as Arc<dyn Backend>),
+        }];
         let table = Arc::new(RouteTable::new(routes));
 
         // Client pair
         let client_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let client_addr = client_listener.local_addr().unwrap();
-        let client = tokio::spawn(async move { tokio::net::TcpStream::connect(client_addr).await.unwrap() });
+        let client =
+            tokio::spawn(async move { tokio::net::TcpStream::connect(client_addr).await.unwrap() });
         let (server_side, _) = client_listener.accept().await.unwrap();
         let mut client_peer = client.await.unwrap();
 
@@ -689,7 +723,13 @@ mod tests {
         client_peer.flush().await.unwrap();
 
         let proto = Arc::new(AsciiProtocol::new()) as Arc<dyn crate::core::Protocol>;
-        let err = super::handle_connection_with_routing(server_side, table, proto).await.err().unwrap();
-        match err { ServerError::NoRoutes => (), _ => panic!("expected NoRoutes") }
+        let err = super::handle_connection_with_routing(server_side, table, proto)
+            .await
+            .err()
+            .unwrap();
+        match err {
+            ServerError::NoRoutes => (),
+            _ => panic!("expected NoRoutes"),
+        }
     }
 }
