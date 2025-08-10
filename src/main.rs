@@ -2,6 +2,10 @@ use bifrost::{config::Config, server::BifrostServer};
 use clap::Parser;
 use tracing::{error, info};
 use tracing_appender::non_blocking;
+// no EnvFilter feature; use a simple level switch via RUST_LOG
+
+static LOG_GUARD: std::sync::OnceLock<tracing_appender::non_blocking::WorkerGuard> =
+    std::sync::OnceLock::new();
 
 #[derive(Parser)]
 #[command(name = "bifrost")]
@@ -13,16 +17,33 @@ struct Args {
 }
 
 fn init_logging() {
-    let (non_blocking_writer, _guard) = non_blocking(std::io::stderr());
-    let _ = tracing_subscriber::fmt()
+    let (non_blocking_writer, guard) = non_blocking(std::io::stderr());
+    // Keep guard alive for the program lifetime to avoid log loss
+    let _ = LOG_GUARD.set(guard);
+
+    let fmt = tracing_subscriber::fmt()
         .with_writer(non_blocking_writer)
         .with_ansi(true)
         .with_target(false)
         .with_thread_ids(false)
         .with_thread_names(false)
         .with_level(true)
-        .compact()
-        .try_init();
+        .compact();
+
+    // Map RUST_LOG to a max level (debug/info/warn/error/trace)
+    let level = match std::env::var("RUST_LOG")
+        .unwrap_or_else(|_| "info".to_string())
+        .to_lowercase()
+        .as_str()
+    {
+        "trace" => tracing::Level::TRACE,
+        "debug" => tracing::Level::DEBUG,
+        "warn" => tracing::Level::WARN,
+        "error" => tracing::Level::ERROR,
+        _ => tracing::Level::INFO,
+    };
+
+    let _ = fmt.with_max_level(level).try_init();
 }
 
 async fn run_with_config_path_and_shutdown(

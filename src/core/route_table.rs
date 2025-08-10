@@ -1,6 +1,7 @@
 use super::backend::{Backend, BackendError};
 use super::pool::{BasicPool, Pool};
 use super::strategy::create_strategy;
+use super::{create_side_effect, side_effect::SideEffect};
 use crate::config::Config;
 use crate::core::connection_pool::MemcachedConnectionManager;
 use std::sync::Arc;
@@ -109,11 +110,24 @@ impl RouteTableBuilder {
             };
 
             let pool: Arc<dyn Pool> = if strategy.name() == "miss_failover" {
-                Arc::new(super::pool::ConcurrentPool::new(
-                    name.clone(),
-                    pool_backends,
-                    strategy,
-                ))
+                // Construct concurrent pool and attach any configured side effects
+                let mut cp =
+                    super::pool::ConcurrentPool::new(name.clone(), pool_backends, strategy);
+                if let Some(pool_cfg) = config.pools.get(name) {
+                    let mut effects: Vec<std::sync::Arc<dyn SideEffect>> = Vec::new();
+                    for se_cfg in &pool_cfg.side_effects {
+                        match create_side_effect(se_cfg) {
+                            Ok(e) => effects.push(e),
+                            Err(e) => tracing::warn!(
+                                "failed to create side effect for pool {}: {}",
+                                name,
+                                e
+                            ),
+                        }
+                    }
+                    cp.side_effects = effects;
+                }
+                Arc::new(cp)
             } else {
                 Arc::new(BasicPool::new(name.clone(), pool_backends, strategy))
             };
@@ -310,6 +324,7 @@ mod tests {
             PoolConfig {
                 backends: vec!["b1".into()],
                 strategy: None,
+                side_effects: Vec::new(),
             },
         );
 
@@ -367,6 +382,7 @@ mod tests {
                     strategy_type: "miss_failover".to_string(),
                     config: HashMap::new(),
                 }),
+                side_effects: Vec::new(),
             },
         );
 
@@ -425,6 +441,7 @@ mod tests {
                     strategy_type: "unknown_strategy".to_string(),
                     config: HashMap::new(),
                 }),
+                side_effects: Vec::new(),
             },
         );
 
@@ -463,6 +480,7 @@ mod tests {
             PoolConfig {
                 backends: vec!["missing".into()],
                 strategy: None,
+                side_effects: Vec::new(),
             },
         );
         let routes = HashMap::new();

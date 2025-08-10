@@ -27,12 +27,15 @@ clippy:
 	$(CARGO) clippy --all-targets --all-features -- -D warnings
 
 coverage:
-	cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
+	$(CARGO) llvm-cov --workspace --all-features --lcov --output-path lcov.info
 
 coverage-html:
-	cargo llvm-cov --workspace --all-features --html --open
+	$(CARGO) llvm-cov --workspace --all-features --html --open
 
-verify: check test clippy coverage
+fmt:
+	$(CARGO) fmt --all
+
+verify: check test clippy coverage fmt
 
 benchmark:
 	cd $(ROOT)/tests/benchmark && ./run_benchmark.sh

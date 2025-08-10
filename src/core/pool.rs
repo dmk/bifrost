@@ -1,4 +1,5 @@
 use super::backend::{Backend, BackendError};
+use super::side_effect::{BackendInfo, ConcurrentHitEvent, SideEffect};
 use super::strategy::Strategy;
 use async_trait::async_trait;
 use std::time::Duration;
@@ -98,6 +99,7 @@ pub struct ConcurrentPool {
     pub backends: Vec<Box<dyn Backend>>,
     pub strategy: Box<dyn Strategy>,
     pub timeout_ms: u64,
+    pub side_effects: Vec<std::sync::Arc<dyn SideEffect>>,
 }
 
 impl ConcurrentPool {
@@ -107,6 +109,7 @@ impl ConcurrentPool {
             backends,
             strategy,
             timeout_ms: 1000, // 1 second default timeout
+            side_effects: Vec::new(),
         }
     }
 
@@ -114,6 +117,8 @@ impl ConcurrentPool {
         self.timeout_ms = timeout_ms;
         self
     }
+
+    // (helper moved below impl)
 
     /// Send a request to all backends concurrently and return the first non-empty response
     async fn send_concurrent_requests(&self, request_data: &[u8]) -> Result<Vec<u8>, PoolError> {
@@ -216,6 +221,37 @@ impl ConcurrentPool {
                                 self.backends[backend_index].name(),
                                 backend_index
                             );
+                            // Notify side effects (best effort) without blocking the hot path
+                            if !self.side_effects.is_empty() {
+                                // Build backend info list once
+                                let backend_infos: std::sync::Arc<Vec<BackendInfo>> =
+                                    std::sync::Arc::new(
+                                        self.backends
+                                            .iter()
+                                            .map(|b| BackendInfo {
+                                                name: b.name().to_string(),
+                                                server: b.server().to_string(),
+                                            })
+                                            .collect(),
+                                    );
+                                let event = ConcurrentHitEvent {
+                                    backend_index,
+                                    response_bytes: response.clone(),
+                                    backends: backend_infos,
+                                };
+                                tracing::debug!(
+                                    "emitting {} side effects for cache hit from index {}",
+                                    self.side_effects.len(),
+                                    backend_index
+                                );
+                                for effect in &self.side_effects {
+                                    let effect = std::sync::Arc::clone(effect);
+                                    let ev = event.clone();
+                                    tokio::spawn(async move {
+                                        effect.on_concurrent_hit(ev).await;
+                                    });
+                                }
+                            }
                             // Drop remaining futures to cancel them via drop
                             return Ok(response);
                         }

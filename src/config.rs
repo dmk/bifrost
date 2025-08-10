@@ -74,6 +74,17 @@ pub struct PoolConfig {
     pub backends: Vec<String>, // References to backend names
     #[serde(default)]
     pub strategy: Option<StrategyConfig>,
+    #[serde(default)]
+    pub side_effects: Vec<SideEffectConfig>,
+}
+
+/// Config for a side effect in YAML
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SideEffectConfig {
+    #[serde(rename = "type")]
+    pub effect_type: String,
+    #[serde(flatten)]
+    pub config: HashMap<String, serde_yaml::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

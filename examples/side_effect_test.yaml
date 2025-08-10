@@ -1,0 +1,42 @@
+listeners:
+  main:
+    bind: "127.0.0.1:22125"
+
+backends:
+  cache1:
+    type: "memcached"
+    server: "127.0.0.1:11211"
+    connection_pool:
+      min_connections: 1
+      max_connections: 4
+  cache2:
+    type: "memcached"
+    server: "127.0.0.1:11212"
+    connection_pool:
+      min_connections: 1
+      max_connections: 4
+  cache3:
+    type: "memcached"
+    server: "127.0.0.1:11213"
+    connection_pool:
+      min_connections: 1
+      max_connections: 4
+
+pools:
+  miss_failover_pool:
+    backends: ["cache1", "cache2", "cache3"]
+    strategy:
+      type: "miss_failover"
+    side_effects:
+      - type: "replicate_on_hit"
+        targets: ["cache1", "cache2", "cache3"]
+        only_if_from_not_target: true
+        method: "set"
+        exptime: 0
+
+routes:
+  default:
+    matcher: "*"
+    pool: "miss_failover_pool"
+
+
