@@ -32,3 +32,6 @@ clap = { version = "4.0", features = ["derive"] }
 
 [dev-dependencies]
 uuid = { version = "1", features = ["v4"] }
+rstest = "0.18"
+tokio-test = "0.4"
+assert_matches = "1.5"
