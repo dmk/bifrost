@@ -142,9 +142,18 @@ async fn test_protocol_multiple_operations() {
     assert!(client.set("key2", "value2", 0).await.unwrap());
     assert!(client.set("key3", "value3", 0).await.unwrap());
 
-    assert_eq!(client.get("key1").await.unwrap(), Some("value1".to_string()));
-    assert_eq!(client.get("key2").await.unwrap(), Some("value2".to_string()));
-    assert_eq!(client.get("key3").await.unwrap(), Some("value3".to_string()));
+    assert_eq!(
+        client.get("key1").await.unwrap(),
+        Some("value1".to_string())
+    );
+    assert_eq!(
+        client.get("key2").await.unwrap(),
+        Some("value2".to_string())
+    );
+    assert_eq!(
+        client.get("key3").await.unwrap(),
+        Some("value3".to_string())
+    );
 
     assert!(client.delete("key2").await.unwrap());
     assert_eq!(client.get("key2").await.unwrap(), None);
@@ -192,7 +201,7 @@ async fn test_protocol_with_preloaded_data() {
 
 // Old tests that were moved:
 // - test_ascii_protocol_command_reconstruction() -> already in protocol_integration_test.rs
-// - test_protocol_error_handling() -> already in protocol_integration_test.rs  
+// - test_protocol_error_handling() -> already in protocol_integration_test.rs
 // - test_response_parsing_edge_cases() -> already in protocol_integration_test.rs
 // - test_protocol_noreply_handling() -> already in protocol_integration_test.rs
 // - test_multikey_get_routing() -> already in protocol_integration_test.rs

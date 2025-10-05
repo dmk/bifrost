@@ -280,9 +280,13 @@ async fn handle_connection(
             stats.requests += 1;
             if command_str_trimmed.starts_with("GET") || command_str_trimmed.starts_with("get") {
                 stats.gets += 1;
-            } else if command_str_trimmed.starts_with("SET") || command_str_trimmed.starts_with("set") {
+            } else if command_str_trimmed.starts_with("SET")
+                || command_str_trimmed.starts_with("set")
+            {
                 stats.sets += 1;
-            } else if command_str_trimmed.starts_with("DELETE") || command_str_trimmed.starts_with("delete") {
+            } else if command_str_trimmed.starts_with("DELETE")
+                || command_str_trimmed.starts_with("delete")
+            {
                 stats.deletes += 1;
             }
         }
@@ -304,14 +308,18 @@ async fn handle_connection(
                     handle_command_normal(command_str_trimmed, &storage, &mut buffer[n..]).await
                 }
                 ResponseMode::AlwaysMiss => {
-                    if command_str_trimmed.starts_with("GET") || command_str_trimmed.starts_with("get") {
+                    if command_str_trimmed.starts_with("GET")
+                        || command_str_trimmed.starts_with("get")
+                    {
                         "END\r\n".to_string()
                     } else {
                         handle_command_normal(command_str_trimmed, &storage, &mut buffer[n..]).await
                     }
                 }
                 ResponseMode::AlwaysSuccess => {
-                    if command_str_trimmed.starts_with("SET") || command_str_trimmed.starts_with("set") {
+                    if command_str_trimmed.starts_with("SET")
+                        || command_str_trimmed.starts_with("set")
+                    {
                         "STORED\r\n".to_string()
                     } else {
                         handle_command_normal(command_str_trimmed, &storage, &mut buffer[n..]).await
@@ -367,7 +375,7 @@ async fn handle_command_normal(
                 return "ERROR\r\n".to_string();
             }
             let key = parts[1];
-            
+
             // For SET commands, the client sends data after the command line
             // The command format is: SET key flags exptime bytes [noreply]\r\ndata\r\n
             // We extract the data from the command string itself (it includes the data)

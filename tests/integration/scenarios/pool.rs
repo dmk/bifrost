@@ -72,12 +72,36 @@ async fn test_pool_round_robin_distribution() {
 
     // Test round robin distribution
     let selections = [
-        pool.select_backend("key1").await.unwrap().name().to_string(),
-        pool.select_backend("key2").await.unwrap().name().to_string(),
-        pool.select_backend("key3").await.unwrap().name().to_string(),
-        pool.select_backend("key4").await.unwrap().name().to_string(),
-        pool.select_backend("key5").await.unwrap().name().to_string(),
-        pool.select_backend("key6").await.unwrap().name().to_string(),
+        pool.select_backend("key1")
+            .await
+            .unwrap()
+            .name()
+            .to_string(),
+        pool.select_backend("key2")
+            .await
+            .unwrap()
+            .name()
+            .to_string(),
+        pool.select_backend("key3")
+            .await
+            .unwrap()
+            .name()
+            .to_string(),
+        pool.select_backend("key4")
+            .await
+            .unwrap()
+            .name()
+            .to_string(),
+        pool.select_backend("key5")
+            .await
+            .unwrap()
+            .name()
+            .to_string(),
+        pool.select_backend("key6")
+            .await
+            .unwrap()
+            .name()
+            .to_string(),
     ];
 
     // Should cycle through backends
@@ -179,13 +203,33 @@ async fn test_pool_multiple_strategies() {
     assert_eq!(pool2.strategy().name(), "blind_forward");
 
     // Round robin should cycle
-    let rr1 = pool1.select_backend("key1").await.unwrap().name().to_string();
-    let rr2 = pool1.select_backend("key2").await.unwrap().name().to_string();
+    let rr1 = pool1
+        .select_backend("key1")
+        .await
+        .unwrap()
+        .name()
+        .to_string();
+    let rr2 = pool1
+        .select_backend("key2")
+        .await
+        .unwrap()
+        .name()
+        .to_string();
     assert_ne!(rr1, rr2);
 
     // Blind forward should always pick first
-    let bf1 = pool2.select_backend("key1").await.unwrap().name().to_string();
-    let bf2 = pool2.select_backend("key2").await.unwrap().name().to_string();
+    let bf1 = pool2
+        .select_backend("key1")
+        .await
+        .unwrap()
+        .name()
+        .to_string();
+    let bf2 = pool2
+        .select_backend("key2")
+        .await
+        .unwrap()
+        .name()
+        .to_string();
     assert_eq!(bf1, bf2);
     assert_eq!(bf1, "bf1");
 }

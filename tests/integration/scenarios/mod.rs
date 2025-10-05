@@ -6,6 +6,6 @@
 //! - failover: Failover behavior tests
 
 // Re-export all test modules so they can be discovered by cargo test
-pub mod protocol;
-pub mod pool;
 pub mod failover;
+pub mod pool;
+pub mod protocol;

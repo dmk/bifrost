@@ -55,11 +55,17 @@ impl TestClient {
             response.push_str(&line);
 
             // Check for end of response
-            if line.starts_with("END") || line.starts_with("STORED") || line.starts_with("NOT_STORED")
-                || line.starts_with("DELETED") || line.starts_with("NOT_FOUND")
-                || line.starts_with("OK") || line.starts_with("ERROR")
-                || line.starts_with("CLIENT_ERROR") || line.starts_with("SERVER_ERROR")
-                || line.starts_with("VERSION") || line.starts_with("TOUCHED")
+            if line.starts_with("END")
+                || line.starts_with("STORED")
+                || line.starts_with("NOT_STORED")
+                || line.starts_with("DELETED")
+                || line.starts_with("NOT_FOUND")
+                || line.starts_with("OK")
+                || line.starts_with("ERROR")
+                || line.starts_with("CLIENT_ERROR")
+                || line.starts_with("SERVER_ERROR")
+                || line.starts_with("VERSION")
+                || line.starts_with("TOUCHED")
                 || line.starts_with("EXISTS")
             {
                 break;
@@ -119,21 +125,29 @@ impl TestClient {
     /// INCR command
     #[allow(dead_code)] // For future test scenarios
     pub async fn incr(&mut self, key: &str, value: u64) -> std::io::Result<Option<u64>> {
-        let response = self.send_command(&format!("INCR {} {}", key, value)).await?;
+        let response = self
+            .send_command(&format!("INCR {} {}", key, value))
+            .await?;
         Ok(response.trim().parse().ok())
     }
 
     /// DECR command
     #[allow(dead_code)] // For future test scenarios
     pub async fn decr(&mut self, key: &str, value: u64) -> std::io::Result<Option<u64>> {
-        let response = self.send_command(&format!("DECR {} {}", key, value)).await?;
+        let response = self
+            .send_command(&format!("DECR {} {}", key, value))
+            .await?;
         Ok(response.trim().parse().ok())
     }
 
     /// VERSION command
     pub async fn version(&mut self) -> std::io::Result<String> {
         let response = self.send_command("VERSION").await?;
-        Ok(response.trim().strip_prefix("VERSION ").unwrap_or("").to_string())
+        Ok(response
+            .trim()
+            .strip_prefix("VERSION ")
+            .unwrap_or("")
+            .to_string())
     }
 
     /// STATS command
