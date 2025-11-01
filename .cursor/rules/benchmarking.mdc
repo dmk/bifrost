@@ -1,0 +1,6 @@
+---
+description: Running benchmarks
+alwaysApply: false
+---
+
+To run benchmarks , see `make help` in `./tests/benchmark`.
