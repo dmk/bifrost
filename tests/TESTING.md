@@ -147,7 +147,9 @@ Located in `tests/benchmark/`.
 **Example:**
 ```bash
 cd tests/benchmark
-./run_benchmark.sh
+./run_benchmark.sh stress_test
+# or run all benchmarks
+make benchmark
 ```
 
 **Speed:** 🐌 Slow (minutes)
@@ -226,11 +228,11 @@ use crate::integration::{MockMemcached, TestClient};
 async fn test_my_feature() {
     let mock = MockMemcached::new().await.unwrap();
     let mut client = TestClient::connect(mock.addr()).await.unwrap();
-    
+
     // Test logic
     assert!(client.set("key", "value", 0).await.unwrap());
     assert_eq!(client.get("key").await.unwrap(), Some("value".to_string()));
-    
+
     client.quit().await.unwrap();
     mock.shutdown();
 }

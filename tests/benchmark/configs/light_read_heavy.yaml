@@ -1,0 +1,18 @@
+# Light Load Read-Heavy Benchmark Configuration
+name: "light_read_heavy"
+description: "Light Load (Read Heavy)"
+
+# Memtier benchmark parameters
+memtier:
+  threads: 2
+  clients: 5
+  requests: 1000
+  ratio: "10:1"  # Read:Write ratio
+  data_size: 1024
+  run_count: 3
+  key_pattern: "R:R"
+  print_percentiles: "50,90,95,99,99.9"
+
+# Bifrost configuration override (optional)
+# If not specified, uses default benchmark_config.yaml
+bifrost_config: "benchmark_config.yaml"

@@ -96,7 +96,7 @@ else
 fi
 
 echo "[remote] Building and running benchmark (timeout ${TIMEOUT_SEC}s)"
-REMOTE_CMD="set -euo pipefail; cd '$REMOTE_REPO/tests/benchmark'; timeout ${TIMEOUT_SEC}s ./run_benchmark.sh"
+REMOTE_CMD="set -euo pipefail; cd '$REMOTE_REPO/tests/benchmark'; timeout ${TIMEOUT_SEC}s ./run_benchmark.sh stress_test"
 if ! "${SSH[@]}" "$REMOTE_CMD"; then
   echo "Remote benchmark command failed or timed out" >&2
   exit 2

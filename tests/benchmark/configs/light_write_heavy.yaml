@@ -1,0 +1,17 @@
+# Light Load Write-Heavy Benchmark Configuration
+name: "light_write_heavy"
+description: "Light Load (Write Heavy)"
+
+# Memtier benchmark parameters
+memtier:
+  threads: 2
+  clients: 5
+  requests: 1000
+  ratio: "1:10"  # Read:Write ratio
+  data_size: 1024
+  run_count: 3
+  key_pattern: "R:R"
+  print_percentiles: "50,90,95,99,99.9"
+
+# Bifrost configuration override (optional)
+bifrost_config: "benchmark_config.yaml"

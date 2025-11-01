@@ -1,0 +1,17 @@
+# Stress Test Benchmark Configuration
+name: "stress_test"
+description: "Stress Test"
+
+# Memtier benchmark parameters
+memtier:
+  threads: 16
+  clients: 25
+  requests: 20000
+  ratio: "5:1"  # Read:Write ratio
+  data_size: 2048
+  run_count: 3
+  key_pattern: "R:R"
+  print_percentiles: "50,90,95,99,99.9"
+
+# Bifrost configuration override (optional)
+bifrost_config: "benchmark_config.yaml"

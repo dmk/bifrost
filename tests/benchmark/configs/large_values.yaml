@@ -1,0 +1,17 @@
+# Large Values Benchmark Configuration
+name: "large_values"
+description: "Large Values Test"
+
+# Memtier benchmark parameters
+memtier:
+  threads: 4
+  clients: 10
+  requests: 5000
+  ratio: "3:1"  # Read:Write ratio
+  data_size: 8192
+  run_count: 3
+  key_pattern: "R:R"
+  print_percentiles: "50,90,95,99,99.9"
+
+# Bifrost configuration override (optional)
+bifrost_config: "benchmark_config.yaml"

@@ -1,102 +1,111 @@
 # Bifrost Benchmark Suite
 
-This directory contains all benchmark-related files for testing Bifrost performance against MCRouter.
+Performance benchmarks comparing Bifrost vs MCRouter using YAML-driven configuration.
+
+## Quick Start
+
+```bash
+# Run all benchmarks
+make benchmark
+
+# Run specific benchmark suite
+make benchmark-stress_test
+cd tests/benchmark && make run-suite SUITE=stress_test
+
+# List available suites
+cd tests/benchmark && make list
+```
 
 ## Directory Structure
 
 ```
 tests/benchmark/
-├── README.md                    # This file
-├── benchmark_config.yaml        # Bifrost configuration for benchmarks
-├── docker-compose-benchmark.yml # Docker setup for benchmark infrastructure
-├── run_benchmark.sh             # Main benchmark execution script (Docker Compose)
-├── run_on_ec2.sh                # Orchestrate a full EC2 run over SSH
-├── remote_bootstrap.sh          # Remote bootstrap to install Docker & deps
-├── benchmark_analysis.py        # Python script to analyze benchmark results
-├── mcrouter-benchmark.json      # MCRouter configuration for benchmarks
-├── mcrouter-config.json         # Additional MCRouter config
-└── benchmark_results/           # Benchmark output and analysis results
+├── Makefile                      # Benchmark-specific targets
+├── run_benchmark.sh             # Main benchmark runner
+├── configs/                      # YAML configuration files
+│   ├── light_read_heavy.yaml
+│   ├── stress_test.yaml
+│   └── ...
+├── benchmark_config.yaml        # Default Bifrost proxy config
+├── docker-compose-benchmark.yml # Infrastructure setup
+├── benchmark_analysis.py        # Results analyzer
+├── mcrouter-benchmark.json      # MCRouter config
+├── run_on_ec2.sh                # EC2 deployment script
+└── benchmark_results/           # Output directory
 ```
 
-## Quick Start
+## Available Benchmarks
 
-1. **Run benchmarks:**
-   ```bash
-   cd tests/benchmark
-   ./run_benchmark.sh
-   ```
+| Config | Threads | Clients | Requests | Ratio | Size | Description |
+|--------|---------|---------|----------|-------|------|-------------|
+| `light_read_heavy` | 2 | 5 | 1K | 10:1 | 1KB | Light read-heavy load |
+| `light_write_heavy` | 2 | 5 | 1K | 1:10 | 1KB | Light write-heavy load |
+| `medium_balanced` | 4 | 10 | 5K | 1:1 | 1KB | Medium balanced load |
+| `high_read_heavy` | 8 | 20 | 10K | 10:1 | 1KB | High read-heavy load |
+| `large_values` | 4 | 10 | 5K | 3:1 | 8KB | Large value test |
+| `stress_test` | 16 | 25 | 20K | 5:1 | 2KB | Stress test |
 
-2. **View results:**
-   ```bash
-   cd tests/benchmark/benchmark_results
-   ls -la
-   ```
+## Creating Custom Benchmarks
 
-3. **Analyze results:**
-   ```bash
-   cd tests/benchmark
-   python3 benchmark_analysis.py
-   ```
+Create a new YAML config in `configs/`:
 
-### Run on EC2 (reproducible)
+```yaml
+# configs/my_custom_benchmark.yaml
+name: "my_custom_benchmark"
+description: "My Custom Benchmark"
 
-Provision an EC2 instance (recommended: c6i.2xlarge, Ubuntu 22.04 or Amazon Linux 2). Ensure inbound SSH allowed from your IP.
+# Memtier benchmark parameters
+memtier:
+  threads: 8
+  clients: 15
+  requests: 10000
+  ratio: "2:1"
+  data_size: 4096
+  run_count: 3
+  key_pattern: "R:R"
+  print_percentiles: "50,90,95,99,99.9"
 
-From your workstation at repo root:
+# Optional: custom Bifrost config (defaults to benchmark_config.yaml)
+bifrost_config: "my_custom_config.yaml"
+```
+
+Run it:
+```bash
+make benchmark-my_custom_benchmark
+```
+
+## EC2 Deployment
+
+For reproducible results on EC2:
 
 ```bash
-cd tests/benchmark
-chmod +x run_on_ec2.sh remote_bootstrap.sh run_benchmark.sh
-./run_on_ec2.sh --host ec2-user@<EC2_PUBLIC_IP> --key ~/.ssh/<key>.pem
+./run_on_ec2.sh --host ec2-user@<IP> --key ~/.ssh/key.pem
 ```
 
-This will:
-- Install Docker and dependencies remotely (can be skipped with `--no-bootstrap`).
-- Rsync this repo to `~/bifrost` on the instance.
-- Build Bifrost for linux/amd64 and run the benchmark suite via Docker Compose.
-- Download `tests/benchmark/benchmark_results/` back to your machine.
-
-Flags:
-- `--repo` to choose a different remote path.
-- `--branch` to set checkout branch remotely (defaults to your current branch name).
-- `--timeout` to cap remote run (default 90 min).
-
-## Benchmark Scenarios
-
-The benchmark suite tests the following scenarios:
-
-- **Light Load (Read Heavy)**: 1 thread, 1 connection, 10k requests
-- **Light Load (Write Heavy)**: 1 thread, 1 connection, 10k requests
-- **Medium Load (Balanced)**: 4 threads, 10 connections, 20k requests
-- **High Load (Read Heavy)**: 8 threads, 20 connections, 160k requests
-- **Large Values**: 1 thread, 1 connection, 20k requests with large values
-- **Stress Test**: 16 threads, 25 connections, 320k requests
+Options:
+- `--no-bootstrap` - Skip Docker installation
+- `--repo <path>` - Remote repo path (default: ~/bifrost)
+- `--branch <name>` - Git branch to use
+- `--timeout <mins>` - Timeout (default: 90)
 
 ## Requirements
 
-- Docker and Docker Compose (the EC2 bootstrap installs these)
-- Python 3.7+
-- memcached (for local testing)
-- mcrouter (for comparison)
-
-## Configuration
-
-- `benchmark_config.yaml`: Bifrost configuration with connection pooling
-- `mcrouter-benchmark.json`: MCRouter configuration for fair comparison
-- `docker-compose-benchmark.yml`: 5 memcached instances + services
+- Docker & Docker Compose
+- Python 3.7+ (for analysis)
+- netcat (for health checks)
 
 ## Results
 
-Benchmark results are stored in `benchmark_results/` with:
-- Raw benchmark output (`.txt` files)
-- JSON data for analysis (`.json` files)
-- Summary CSV with comparisons (`benchmark_summary.csv`)
+Results are saved in `benchmark_results/`:
+- `*.txt` - Raw memtier output
+- `*.json` - Structured results
+- `benchmark_summary.csv` - Comparison summary
 
-See `BENCHMARK_README.md` for detailed documentation.
+## Architecture
 
-## Fairness notes ("@benchmark/ to be fair")
+- **5 memcached instances** (ports 11211-11215)
+- **Bifrost proxy** on port 22122
+- **MCRouter proxy** on port 11211
+- **memtier_benchmark** runs in Docker container on same network
 
-- Both proxies run on the same host and are hit from the same memtier container network to avoid network asymmetry.
-- Bifrost and MCRouter connect to the same 5 memcached instances with identical server flags.
-- Bifrost image is built with `linux/amd64` to match the base images and EC2 arch; MCRouter uses the same arch.
-- memtier runs with identical parameters for both proxies per scenario and prints p50/p95/p99 to compare tails.
+Both proxies connect to the same backends for fair comparison.

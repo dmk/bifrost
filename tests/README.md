@@ -64,7 +64,9 @@ The `benchmark/` directory contains a comprehensive benchmark suite that compare
 
 ```bash
 cd tests/benchmark
-./run_benchmark.sh
+./run_benchmark.sh stress_test
+# or
+make benchmark
 ```
 
 ### What's Tested
